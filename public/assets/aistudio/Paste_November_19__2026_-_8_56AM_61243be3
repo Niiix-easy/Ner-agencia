@@ -1,0 +1,1428 @@
+# PROMPT MESTRE — NER AGENCY OS
+## Construção de uma agência digital híbrida, multissetorial e tecnológica
+
+---
+
+# 1. IDENTIDADE E MISSÃO DO PROJETO
+
+Você será responsável por arquitetar, desenvolver e implementar um ecossistema empresarial completo chamado **NER AGENCY**, com seu sistema operacional proprietário denominado **NER AGENCY OS**.
+
+Você deverá atuar simultaneamente como:
+
+- Arquiteto de software sênior.
+- Engenheiro Full Stack.
+- Especialista em SaaS e sistemas empresariais.
+- Especialista em marketing digital e performance.
+- Especialista em Meta Ads, Google Ads e TikTok Ads.
+- Especialista em automações com inteligência artificial.
+- Especialista em CRM e gestão comercial.
+- Especialista em produção audiovisual e vídeos publicitários.
+- Especialista em análise de dados, atribuição e BI.
+- Especialista em DevOps, segurança e infraestrutura.
+
+Seu objetivo é construir uma estrutura empresarial e tecnológica capaz de administrar uma agência de marketing digital de ponta a ponta.
+
+**Não construa somente um dashboard visual. Construa uma aplicação empresarial funcional, com arquitetura preparada para produção.**
+
+A NER deverá atender empresas de diferentes segmentos, desde pequenos empreendedores até empresas de médio e grande porte.
+
+A agência terá capacidade de planejar, produzir, anunciar, acompanhar, otimizar e analisar campanhas comerciais.
+
+## Posicionamento da marca
+
+NER AGENCY
+
+Marketing. Intelligence. Growth.
+
+Áreas de atuação:
+
+1. Estratégia de marketing.
+2. Produção audiovisual.
+3. Criação de campanhas comerciais.
+4. Gestão de tráfego pago.
+5. Desenvolvimento de sites e landing pages.
+6. E-commerce.
+7. CRM e automação comercial.
+8. Inteligência artificial.
+9. Rastreamento e atribuição.
+10. Inteligência de negócios.
+
+A identidade visual deverá transmitir tecnologia, profissionalismo, inovação, autoridade e sofisticação.
+
+Direção visual:
+- Interface premium.
+- Estética tecnológica.
+- Fundo predominantemente escuro.
+- Azul profundo, preto, branco e detalhes metálicos.
+- Tipografia moderna.
+- Ícones consistentes.
+- Gráficos profissionais.
+- Layout responsivo.
+- Experiência de uso intuitiva.
+
+Não utilize uma interface genérica de template administrativo.
+
+---
+
+# 2. OBJETIVO EMPRESARIAL
+
+Construir dois elementos integrados:
+
+## A. NER AGENCY
+
+A empresa responsável pela operação comercial e pela prestação de serviços.
+
+## B. NER AGENCY OS
+
+O sistema proprietário responsável por administrar a agência.
+
+O sistema deverá centralizar:
+
+- Clientes.
+- Leads.
+- Vendas.
+- Contratos.
+- Serviços.
+- Projetos.
+- Equipes.
+- Campanhas.
+- Contas de anúncios.
+- Criativos.
+- Produção audiovisual.
+- Automações.
+- Investimentos publicitários.
+- Resultados.
+- Financeiro.
+- Relatórios.
+- Atendimento.
+- Aprovações.
+
+O sistema deverá permitir que a agência opere todos os departamentos em um único ambiente.
+
+A arquitetura deve permitir futura comercialização do NER Agency OS como SaaS para outras agências, mas o primeiro objetivo é operar a própria NER.
+
+Não implementar funcionalidades complexas de SaaS multiempresa comercial antes da necessidade. Preparar o isolamento de dados para permitir essa evolução.
+
+---
+
+# 3. ESTRUTURA ORGANIZACIONAL
+
+Criar sete unidades de negócio integradas.
+
+## NER BUSINESS
+
+Responsável pela administração empresarial.
+
+Funcionalidades:
+- Cadastro de empresas.
+- Cadastro de clientes.
+- Cadastro de contatos.
+- Gestão de leads.
+- CRM.
+- Pipeline comercial.
+- Oportunidades.
+- Propostas.
+- Contratos.
+- Serviços contratados.
+- Faturamento.
+- Receitas.
+- Despesas.
+- Controle financeiro.
+- Indicadores comerciais.
+
+## NER STRATEGY
+
+Responsável pela inteligência estratégica.
+
+Funcionalidades:
+- Pesquisa de mercado.
+- Pesquisa de concorrentes.
+- Análise de produtos.
+- Análise de público-alvo.
+- Personas.
+- Posicionamento de marca.
+- Proposta de valor.
+- Planejamento de campanhas.
+- Estratégias de aquisição.
+- Planejamento de funis.
+- Briefings comerciais.
+- Planejamento de mídia.
+
+## NER CREATIVE
+
+Responsável pela criação e produção audiovisual.
+
+Funcionalidades:
+- Biblioteca de imagens.
+- Biblioteca de vídeos.
+- Cadastro de produtos.
+- Gestão de roteiros.
+- Geração de headlines.
+- Copywriting.
+- Criação de anúncios.
+- Produção de vídeos comerciais.
+- Produção de UGC.
+- Motion graphics.
+- Edição e processamento.
+- Redimensionamento de criativos.
+- Controle de versões.
+- Aprovação de materiais.
+- Organização de arquivos por cliente e campanha.
+
+Integrações previstas:
+- Remotion.
+- FFmpeg.
+- APIs de geração de imagens.
+- APIs de geração de vídeos.
+- Serviços de IA para roteiros e conteúdo.
+
+A geração de mídia deverá respeitar direitos autorais, licenças comerciais, autorização de imagem e regras de publicidade.
+
+## NER PERFORMANCE
+
+Responsável pela aquisição de clientes e gestão de campanhas.
+
+Plataformas:
+
+- Meta Ads.
+- TikTok Ads.
+- Google Ads.
+- YouTube Ads.
+- Microsoft Ads.
+- Pinterest Ads.
+- Amazon Ads, quando aplicável.
+
+Funcionalidades:
+
+- Conexão de contas.
+- Importação de campanhas.
+- Consulta de métricas.
+- Gestão de campanhas.
+- Gestão de anúncios.
+- Controle de orçamento.
+- Planejamento de investimento.
+- Análise de resultados.
+- Comparação entre plataformas.
+- Otimização de campanhas.
+- Histórico de alterações.
+- Alertas de desempenho.
+- Recomendações de otimização.
+
+Desenvolver os conectores por meio das APIs oficiais.
+
+Não simular acesso às plataformas.
+
+Se uma integração ainda não estiver configurada, apresentar seu status como pendente e disponibilizar a configuração necessária.
+
+## NER WEB
+
+Responsável pela presença digital e conversão.
+
+Funcionalidades:
+
+- Criação de landing pages.
+- Desenvolvimento de sites.
+- Páginas comerciais.
+- Páginas de produtos.
+- Estruturas de e-commerce.
+- Formulários.
+- Captura de leads.
+- Integração com checkout.
+- UTMs.
+- Rastreamento.
+- Testes A/B.
+- Otimização de conversão.
+
+A agência deverá conseguir desenvolver páginas para diferentes segmentos e campanhas.
+
+## NER AUTOMATION
+
+Responsável pela automação de processos.
+
+Ferramenta principal: n8n.
+
+Funcionalidades:
+
+- Automação de leads.
+- Integração com CRM.
+- Automação de atendimento.
+- Notificações.
+- Relatórios automáticos.
+- Webhooks.
+- Sincronização de campanhas.
+- Recuperação de oportunidades.
+- Fluxos de aprovação.
+- Processamento de eventos.
+- Integração com inteligência artificial.
+
+Utilizar n8n como orquestrador externo.
+
+Não desenvolver um segundo construtor visual de workflows.
+
+## NER INTELLIGENCE
+
+Responsável por dados e inteligência comercial.
+
+Funcionalidades:
+
+- Dashboard executivo.
+- Análise de campanhas.
+- Análise de conversões.
+- Análise de vendas.
+- CAC.
+- CPA.
+- CPC.
+- CPM.
+- CTR.
+- ROAS.
+- ROI.
+- LTV.
+- Taxa de conversão.
+- Margem de contribuição.
+- Comparação de períodos.
+- Relatórios por cliente.
+- Relatórios por plataforma.
+- Relatórios por produto.
+- Atribuição de conversões.
+
+Integrar PostHog e Metabase quando apropriado.
+
+Não confundir métricas reportadas pelas plataformas com vendas efetivamente confirmadas pelo cliente.
+
+---
+
+# 4. ARQUITETURA TECNOLÓGICA OBRIGATÓRIA
+
+Utilizar preferencialmente:
+
+Frontend:
+- Next.js.
+- React.
+- TypeScript.
+- Tailwind CSS.
+- shadcn/ui.
+
+Backend:
+- NestJS.
+- Node.js.
+- TypeScript.
+- APIs REST.
+- Webhooks.
+
+Banco:
+- PostgreSQL.
+- Prisma ORM.
+
+Processamento:
+- Redis.
+- BullMQ.
+- Workers.
+
+Automação:
+- n8n.
+
+Armazenamento:
+- MinIO ou armazenamento compatível com S3.
+
+Audiovisual:
+- Remotion.
+- FFmpeg.
+
+Integrações:
+- Meta Marketing API.
+- TikTok Business API.
+- Google Ads API.
+
+Infraestrutura:
+- Docker.
+- Docker Compose.
+- pnpm.
+- Turborepo.
+- GitHub Actions.
+
+Observabilidade:
+- OpenTelemetry.
+- Grafana.
+- Logs estruturados.
+
+Autenticação:
+- Solução segura compatível com a arquitetura.
+- OAuth quando necessário.
+- Controle de sessões.
+- Controle de permissões.
+- Proteção de rotas.
+
+Se alguma tecnologia não for suportada diretamente pelo ambiente do Google AI Studio, separar claramente a aplicação visual, o backend e os serviços externos.
+
+Não fingir que serviços externos estão funcionando quando não estiverem configurados.
+
+---
+
+# 5. ESTRUTURA DO REPOSITÓRIO GITHUB
+
+Nome oficial:
+
+ner-agency-os
+
+Criar um monorepositório com esta estrutura:
+
+ner-agency-os/
+
+apps/
+- web/
+- client-portal/
+- api/
+- video-studio/
+
+packages/
+- ui/
+- auth/
+- database/
+- shared/
+- contracts/
+- events/
+- config/
+- observability/
+
+services/
+- workers/
+- ad-connectors/
+- analytics-connectors/
+- media-engine/
+- ai-gateway/
+
+workflows/
+- onboarding/
+- sales/
+- campaigns/
+- reporting/
+- notifications/
+
+database/
+- schema/
+- migrations/
+- seeds/
+- policies/
+
+infrastructure/
+- docker/
+- monitoring/
+- storage/
+- deployment/
+
+docs/
+- architecture/
+- business/
+- api/
+- security/
+- integrations/
+- operations/
+
+tests/
+- unit/
+- integration/
+- e2e/
+- performance/
+
+scripts/
+
+.github/
+- workflows/
+
+Arquivos principais:
+
+- package.json
+- pnpm-workspace.yaml
+- turbo.json
+- docker-compose.yml
+- .env.example
+- README.md
+
+Criar também:
+
+- Documentação de instalação.
+- Documentação de desenvolvimento.
+- Documentação de deploy.
+- Documentação das APIs.
+- Documentação das integrações.
+- Guia de segurança.
+- Guia de contribuição.
+
+Não criar repositórios independentes para cada departamento.
+
+Utilizar monólito modular no backend, com serviços de processamento assíncrono quando necessário.
+
+---
+
+# 6. NER CORE — NÚCLEO CENTRAL
+
+O NER Core será responsável pela identidade, segurança e dados compartilhados.
+
+Criar os seguintes domínios:
+
+- Identity.
+- Users.
+- Roles.
+- Permissions.
+- Clients.
+- Organizations.
+- Audit.
+- Notifications.
+- Settings.
+
+Todos os departamentos utilizarão o mesmo cadastro central de clientes e usuários.
+
+Implementar:
+
+- Autenticação.
+- Autorização.
+- Controle de acesso baseado em papéis.
+- Separação dos dados dos clientes.
+- Logs de auditoria.
+- Controle de sessões.
+- Proteção de APIs.
+- Validação de dados.
+- Rate limiting.
+- Tratamento de erros.
+
+Papéis iniciais:
+
+- Super Admin.
+- Administrador.
+- Diretor.
+- Gestor de marketing.
+- Gestor de tráfego.
+- Designer.
+- Editor de vídeo.
+- Comercial.
+- Financeiro.
+- Atendimento.
+- Cliente.
+
+Cada papel deverá possuir permissões específicas.
+
+Um cliente não poderá acessar informações de outro cliente.
+
+Aplicar princípios de segurança desde o banco de dados até o frontend.
+
+---
+
+# 7. NER BUSINESS — CRM E GESTÃO EMPRESARIAL
+
+Desenvolver um CRM integrado.
+
+Funcionalidades:
+
+1. Cadastro de leads.
+2. Cadastro de empresas.
+3. Cadastro de contatos.
+4. Pipeline de vendas.
+5. Oportunidades.
+6. Atividades.
+7. Histórico comercial.
+8. Propostas.
+9. Contratos.
+10. Serviços contratados.
+11. Gestão de clientes.
+12. Indicadores comerciais.
+
+Criar pipeline com etapas configuráveis:
+
+- Novo lead.
+- Primeiro contato.
+- Qualificação.
+- Reunião.
+- Proposta enviada.
+- Negociação.
+- Ganho.
+- Perdido.
+
+Criar gestão financeira:
+
+- Receitas.
+- Despesas.
+- Contas a receber.
+- Contas a pagar.
+- Contratos recorrentes.
+- Faturamento.
+- Margem operacional.
+- Indicadores de rentabilidade.
+
+Integrar Twenty CRM e Chatwoot quando fizer sentido.
+
+Não duplicar CRM ou atendimento caso esses sistemas já estejam sendo utilizados.
+
+---
+
+# 8. NER CREATIVE — FÁBRICA DE CAMPANHAS
+
+Criar um processo que transforme um produto ou serviço em uma campanha comercial completa.
+
+Fluxo:
+
+1. Cadastro do produto.
+2. Pesquisa de mercado.
+3. Pesquisa de concorrentes.
+4. Identificação de público.
+5. Identificação de dores e desejos.
+6. Definição dos argumentos comerciais.
+7. Criação de conceitos publicitários.
+8. Criação de roteiros.
+9. Criação de headlines.
+10. Produção de imagens.
+11. Produção de vídeos.
+12. Edição.
+13. Revisão.
+14. Aprovação.
+15. Distribuição.
+
+Criar gerenciador de criativos com:
+
+- Nome.
+- Cliente.
+- Produto.
+- Campanha.
+- Plataforma.
+- Formato.
+- Objetivo.
+- Versão.
+- Status.
+- Arquivo.
+- Responsável.
+- Aprovação.
+
+Formatos:
+
+- 9:16.
+- 1:1.
+- 4:5.
+- 16:9.
+
+Tipos de materiais:
+
+- Reels.
+- TikTok.
+- Shorts.
+- Vídeos comerciais.
+- Demonstrações.
+- UGC.
+- Carrosséis.
+- Imagens publicitárias.
+- Banners.
+- Vídeos institucionais.
+
+Integrar Remotion e FFmpeg para processamento e geração programática de vídeos.
+
+O sistema deverá permitir criar diferentes versões de um mesmo criativo.
+
+Não afirmar que um vídeo foi gerado sem efetivamente produzir o arquivo.
+
+---
+
+# 9. NER PERFORMANCE — PLATAFORMAS DE ANÚNCIOS
+
+Criar arquitetura de conectores independentes.
+
+Meta:
+- Facebook Marketing API.
+- Instagram Ads.
+- Facebook Ads.
+- Instagram Ads.
+- Métricas.
+- Campanhas.
+- Orçamentos.
+- Anúncios.
+
+TikTok:
+- TikTok Business API.
+- Campanhas.
+- Grupos de anúncios.
+- Criativos.
+- Métricas.
+
+Google:
+- Google Ads API.
+- Search.
+- Display.
+- Shopping.
+- Performance Max.
+- YouTube Ads.
+
+Implementar:
+
+- OAuth.
+- Gerenciamento de credenciais.
+- Sincronização.
+- Histórico de importação.
+- Tratamento de erros.
+- Rate limits.
+- Paginação.
+- Retry com backoff.
+- Logs.
+
+Criar interface padronizada para campanhas, preservando as particularidades de cada plataforma.
+
+Nunca utilizar dados simulados como se fossem dados reais.
+
+Quando estiver em ambiente de demonstração, identificar claramente os dados fictícios.
+
+---
+
+# 10. SISTEMA DE CONTROLE DE ORÇAMENTO
+
+Criar monitoramento inteligente dos investimentos publicitários.
+
+Objetivos:
+
+- Detectar consumo acelerado de orçamento.
+- Identificar desvios de desempenho.
+- Alertar gestores.
+- Recomendar ajustes.
+- Evitar decisões precipitadas.
+
+Implementar regras considerando:
+
+- Orçamento diário.
+- Investimento acumulado.
+- Janela temporal.
+- Horário.
+- Histórico da campanha.
+- Conversões.
+- CPA.
+- ROAS.
+- Volume mínimo de dados.
+- Sequência de eventos.
+
+Níveis de automação:
+
+Nível 1: monitoramento.
+
+Nível 2: recomendação.
+
+Nível 3: execução mediante aprovação.
+
+Nível 4: execução automática sob regras expressamente autorizadas.
+
+Uma campanha vencedora não poderá ser pausada por uma oscilação momentânea.
+
+Toda alteração deverá ser registrada.
+
+Quando tecnicamente possível, disponibilizar mecanismo de reversão.
+
+---
+
+# 11. NER WEB — LANDING PAGES E E-COMMERCE
+
+Desenvolver estrutura para:
+
+- Landing pages.
+- Sites empresariais.
+- Páginas de produto.
+- Catálogos.
+- Formulários.
+- Captura de leads.
+- Integração com checkout.
+- UTMs.
+- Pixels.
+- Eventos.
+- Testes A/B.
+
+Criar componentes reutilizáveis de páginas.
+
+Cada landing page deverá poder ser associada a:
+
+- Cliente.
+- Produto.
+- Campanha.
+- Canal.
+- Objetivo.
+- Conversão.
+
+Criar padrões de páginas para:
+
+- E-commerce.
+- Beleza e cosméticos.
+- Imobiliárias.
+- Clínicas.
+- Restaurantes.
+- Prestadores de serviços.
+- Empresas B2B.
+
+Não assumir que todos os segmentos utilizam o mesmo funil.
+
+---
+
+# 12. NER AUTOMATION — AUTOMAÇÃO
+
+Integrar n8n.
+
+Criar workflows para:
+
+- Novo lead.
+- Qualificação.
+- Distribuição comercial.
+- Notificação.
+- Onboarding de cliente.
+- Criação de projeto.
+- Solicitação de briefing.
+- Aprovação de criativos.
+- Relatório de campanha.
+- Alerta de orçamento.
+- Recuperação de oportunidades.
+- Comunicação com clientes.
+
+Usar:
+
+- Webhooks.
+- APIs.
+- Filas.
+- Workers.
+- Retry.
+- Dead Letter Queue.
+- Logs.
+- Idempotência.
+
+As regras críticas de negócio deverão permanecer no backend.
+
+Não armazenar senhas e tokens diretamente nos workflows ou arquivos públicos.
+
+---
+
+# 13. NER INTELLIGENCE — RASTREAMENTO E ATRIBUIÇÃO
+
+Criar uma estrutura para medir toda a jornada comercial.
+
+Integrar:
+
+- Meta Pixel.
+- Meta Conversions API.
+- TikTok Pixel e eventos server-side disponíveis.
+- Google Tag Manager.
+- Google Analytics 4.
+- Google Ads Conversion Tracking.
+- UTMs.
+- PostHog.
+
+Eventos importantes:
+
+- PageView.
+- ViewContent.
+- Lead.
+- Contact.
+- AddToCart.
+- InitiateCheckout.
+- Purchase.
+- CompleteRegistration.
+
+Implementar deduplicação quando houver eventos enviados pelo navegador e pelo servidor.
+
+Guardar:
+
+- Event ID.
+- Timestamp.
+- Source.
+- Campaign.
+- Medium.
+- Content.
+- Term.
+- Client.
+- Session.
+- Conversion value.
+- Currency.
+
+Diferenciar:
+
+- Conversões reportadas pelas plataformas.
+- Conversões registradas no sistema.
+- Pedidos pagos.
+- Vendas confirmadas.
+
+Criar relatórios com comparação de atribuição.
+
+Respeitar LGPD, consentimento, minimização de dados e retenção.
+
+---
+
+# 14. PORTAL DO CLIENTE
+
+Criar aplicação separada visualmente, mas integrada ao mesmo backend.
+
+O cliente deverá conseguir:
+
+- Visualizar seus projetos.
+- Consultar campanhas.
+- Consultar investimentos.
+- Visualizar resultados.
+- Acompanhar produção de criativos.
+- Enviar materiais.
+- Aprovar anúncios.
+- Solicitar alterações.
+- Consultar relatórios.
+- Visualizar contratos.
+- Consultar faturas.
+- Abrir solicitações de atendimento.
+
+O cliente somente poderá acessar os próprios dados.
+
+---
+
+# 15. DASHBOARD EXECUTIVO
+
+Criar dashboard administrativo premium.
+
+Indicadores gerais:
+
+- Clientes ativos.
+- Leads.
+- Oportunidades.
+- Contratos.
+- Receita mensal.
+- Receita recorrente.
+- Despesas.
+- Margem operacional.
+- Projetos ativos.
+- Campanhas ativas.
+- Investimento publicitário.
+- Resultados.
+- Pendências.
+- Aprovações.
+
+Criar filtros:
+
+- Período.
+- Cliente.
+- Plataforma.
+- Departamento.
+- Campanha.
+- Responsável.
+
+Criar gráficos profissionais e tabelas com filtros.
+
+Os indicadores devem ser alimentados por dados reais.
+
+Não apresentar números fictícios como resultados da agência.
+
+---
+
+# 16. MODELO DE DADOS
+
+Criar banco PostgreSQL utilizando Prisma.
+
+Entidades principais:
+
+Identidade:
+- User.
+- Role.
+- Permission.
+- Session.
+- Organization.
+
+Clientes:
+- Client.
+- Company.
+- Contact.
+
+Comercial:
+- Lead.
+- Deal.
+- Proposal.
+- Contract.
+- Service.
+
+Financeiro:
+- Invoice.
+- Payment.
+- Expense.
+- Subscription.
+
+Projetos:
+- Project.
+- Task.
+- Briefing.
+- Approval.
+
+Criativos:
+- Asset.
+- Script.
+- Video.
+- CreativeVersion.
+
+Publicidade:
+- AdAccount.
+- Campaign.
+- AdGroup.
+- Advertisement.
+- AdMetric.
+- BudgetRule.
+
+Tracking:
+- Event.
+- Touchpoint.
+- Conversion.
+- Attribution.
+
+Automação:
+- Workflow.
+- WorkflowExecution.
+- Integration.
+- WebhookEvent.
+
+Inteligência:
+- Metric.
+- Report.
+- Dashboard.
+
+Criar relacionamentos, índices, constraints e migrations.
+
+Não duplicar entidades que já tenham uma fonte oficial no sistema.
+
+Criar estratégias de isolamento por cliente e políticas de acesso ao banco.
+
+---
+
+# 17. SEGURANÇA E LGPD
+
+Implementar obrigatoriamente:
+
+- Autenticação segura.
+- Autorização.
+- Controle de acesso.
+- Criptografia de segredos.
+- Validação de entrada.
+- Proteção contra SQL Injection.
+- Proteção contra XSS.
+- Proteção contra CSRF quando aplicável.
+- Rate limiting.
+- Auditoria.
+- Backup.
+- Controle de sessão.
+- Segregação de clientes.
+- Políticas de retenção.
+- Procedimentos de exclusão de dados.
+
+Não colocar chaves privadas no frontend.
+
+Criar arquivos:
+
+.env.example
+
+Nunca inserir credenciais reais no GitHub.
+
+Criar mecanismos de controle de acesso para as contas de anúncios.
+
+---
+
+# 18. INFRAESTRUTURA E DEVOPS
+
+Preparar Docker Compose para desenvolvimento.
+
+Serviços previstos:
+
+- PostgreSQL.
+- Redis.
+- API.
+- Web.
+- Client Portal.
+- Workers.
+- n8n.
+- MinIO.
+
+Serviços externos opcionais:
+
+- Twenty.
+- Chatwoot.
+- PostHog.
+- Metabase.
+
+Não obrigar todos os serviços a iniciar quando não forem necessários.
+
+Criar:
+
+- Health checks.
+- Volumes persistentes.
+- Redes internas.
+- Backups.
+- Logs.
+- Configuração de ambientes.
+- CI/CD.
+- Migrations.
+- Seeds.
+
+Criar ambientes:
+
+- Development.
+- Staging.
+- Production.
+
+A implantação deverá ser documentada e reproduzível.
+
+---
+
+# 19. MERCADOS ATENDIDOS
+
+A estrutura comercial deverá permitir atendimento multissetorial.
+
+Segmentos:
+
+1. Beleza e cosméticos.
+2. Moda e acessórios.
+3. E-commerce.
+4. Casa e decoração.
+5. Alimentação e restaurantes.
+6. Imobiliárias.
+7. Construção.
+8. Clínicas.
+9. Educação.
+10. Serviços profissionais.
+11. Tecnologia.
+12. Empresas B2B.
+13. Indústria.
+14. Comércio local.
+
+Criar modelos configuráveis de briefing, planejamento, campanhas e relatórios.
+
+Não criar módulos específicos para cada segmento quando uma estrutura configurável resolver o problema.
+
+---
+
+# 20. MODELO COMERCIAL DA AGÊNCIA
+
+Criar catálogo de serviços com três níveis:
+
+NER PERFORMANCE:
+- Gestão de mídia.
+- Planejamento.
+- Otimização.
+- Relatórios.
+
+NER GROWTH:
+- Gestão multicanal.
+- Produção de criativos.
+- Landing pages.
+- Tracking.
+- Automação.
+
+NER ENTERPRISE:
+- Estratégia completa.
+- Produção audiovisual.
+- Aquisição.
+- CRM.
+- Automação.
+- Inteligência de dados.
+- Planejamento empresarial.
+
+Permitir configurar:
+
+- Preço.
+- Recorrência.
+- Escopo.
+- Entregáveis.
+- Prazo.
+- Responsável.
+- Contrato.
+- Custos adicionais.
+
+Separar honorários da agência, orçamento publicitário e custos de produção.
+
+---
+
+# 21. ROADMAP DE IMPLEMENTAÇÃO
+
+Executar em 12 fases.
+
+FASE 01 — Fundação:
+- Monorepo.
+- TypeScript.
+- pnpm.
+- Turborepo.
+- Docker.
+- Banco.
+- CI/CD.
+
+FASE 02 — NER Core:
+- Usuários.
+- Login.
+- Permissões.
+- Clientes.
+- Auditoria.
+
+FASE 03 — NER Business:
+- CRM.
+- Leads.
+- Vendas.
+- Contratos.
+- Financeiro.
+
+FASE 04 — Gestão de projetos:
+- Briefings.
+- Tarefas.
+- Projetos.
+- Aprovações.
+
+FASE 05 — NER Creative:
+- Arquivos.
+- Roteiros.
+- Vídeos.
+- Biblioteca.
+- Renderização.
+
+FASE 06 — NER Performance:
+- Meta Ads.
+- Google Ads.
+- TikTok Ads.
+- Importação de dados.
+
+FASE 07 — Tracking:
+- Pixels.
+- Eventos.
+- CAPI.
+- UTMs.
+- Atribuição.
+
+FASE 08 — NER Automation:
+- n8n.
+- Webhooks.
+- Workers.
+- Filas.
+
+FASE 09 — NER Intelligence:
+- Analytics.
+- Dashboards.
+- Relatórios.
+
+FASE 10 — Portal do cliente:
+- Acesso.
+- Aprovações.
+- Resultados.
+- Projetos.
+
+FASE 11 — Segurança e financeiro:
+- LGPD.
+- Auditoria.
+- Backup.
+- Cobrança.
+- Testes.
+
+FASE 12 — Lançamento:
+- Testes integrados.
+- Correções.
+- Documentação.
+- Deploy.
+- Monitoramento.
+
+---
+
+# 22. REGRAS OBRIGATÓRIAS DE DESENVOLVIMENTO
+
+Estas regras devem ser respeitadas durante todo o projeto.
+
+REGRA 1:
+Não criar módulos desnecessários.
+
+REGRA 2:
+Antes de desenvolver uma funcionalidade, verificar se ela já existe.
+
+REGRA 3:
+Não duplicar ferramentas que podem ser integradas de maneira mais eficiente.
+
+REGRA 4:
+Não criar microsserviços sem justificativa técnica.
+
+REGRA 5:
+Não criar telas apenas ilustrativas quando a funcionalidade for apresentada como concluída.
+
+REGRA 6:
+Não utilizar dados simulados como dados reais.
+
+REGRA 7:
+Não deixar botões sem funcionamento.
+
+REGRA 8:
+Não implementar integrações falsas.
+
+REGRA 9:
+Não inventar endpoints ou permissões de APIs.
+
+REGRA 10:
+Consultar a documentação oficial das APIs antes de desenvolver integrações.
+
+REGRA 11:
+Respeitar limites, licenças e condições comerciais dos projetos externos.
+
+REGRA 12:
+Não sobrescrever funcionalidades existentes sem analisar o impacto.
+
+REGRA 13:
+Criar testes para funcionalidades críticas.
+
+REGRA 14:
+Documentar cada módulo.
+
+REGRA 15:
+Manter compatibilidade entre frontend, backend e banco.
+
+REGRA 16:
+Manter isolamento de dados dos clientes.
+
+REGRA 17:
+Não permitir ações publicitárias críticas sem autorização.
+
+REGRA 18:
+Não considerar uma etapa concluída sem validação funcional.
+
+REGRA 19:
+Não remover funcionalidades para simplificar o desenvolvimento sem justificar a decisão.
+
+REGRA 20:
+Manter o projeto organizado, versionado e preparado para continuidade.
+
+---
+
+# 23. CRITÉRIOS DE QUALIDADE
+
+A aplicação somente poderá ser considerada funcional quando:
+
+- Login estiver funcionando.
+- Permissões estiverem funcionando.
+- Cadastro de clientes estiver funcionando.
+- CRM estiver funcionando.
+- Projetos estiverem funcionando.
+- Banco estiver persistindo dados.
+- APIs estiverem respondendo corretamente.
+- Integrações tiverem tratamento de erros.
+- Arquivos puderem ser armazenados e recuperados.
+- Relatórios utilizarem dados verificáveis.
+- O portal respeitar o isolamento de clientes.
+- Testes críticos estiverem passando.
+- O deploy estiver documentado.
+
+Criar um registro de conclusão de cada fase.
+
+Status permitidos:
+
+- Não iniciado.
+- Em desenvolvimento.
+- Implementado.
+- Em testes.
+- Aprovado.
+- Bloqueado.
+
+Nunca declarar uma funcionalidade como aprovada sem comprovação.
+
+---
+
+# 24. INSTRUÇÕES ESPECÍFICAS PARA GOOGLE AI STUDIO
+
+Primeiro, analise os recursos e limitações do ambiente disponível.
+
+Não presuma que possui acesso automático ao GitHub, banco de dados, terminal, APIs externas ou credenciais.
+
+Se uma conexão ou credencial for necessária, informar exatamente o que precisa ser configurado.
+
+Se o ambiente permitir criar e editar arquivos, produzir a estrutura real do projeto.
+
+Se o ambiente oferecer apenas frontend e backend limitado, separar os componentes que precisarão ser executados externamente.
+
+Não substituir o backend por armazenamento local como solução definitiva.
+
+Não colocar credenciais secretas no navegador.
+
+Não apresentar uma demonstração visual como se fosse um sistema de produção.
+
+Se utilizar dados demonstrativos durante o desenvolvimento, identificá-los claramente.
+
+Manter compatibilidade com a possibilidade de executar o projeto em infraestrutura própria usando Docker.
+
+Criar instruções para exportação e versionamento no GitHub.
+
+---
+
+# 25. ORDEM DE EXECUÇÃO
+
+Não tente implementar todas as funcionalidades em uma única operação desorganizada.
+
+Trabalhe por etapas.
+
+PRIMEIRO:
+Faça uma análise técnica completa do projeto.
+
+SEGUNDO:
+Apresente a arquitetura e a árvore de arquivos.
+
+TERCEIRO:
+Crie a fundação do repositório.
+
+QUARTO:
+Implemente o NER Core.
+
+QUINTO:
+Implemente o painel administrativo e o NER Business.
+
+SEXTO:
+Avance para os demais departamentos seguindo o roadmap.
+
+SÉTIMO:
+Execute testes e documente cada entrega.
+
+O desenvolvimento deverá preservar todo o código anteriormente produzido.
+
+Se houver limite de contexto ou de execução, interrompa no final de uma unidade coerente, registre o progresso e informe precisamente como continuar.
+
+Não recomece do zero em cada etapa.
+
+---
+
+# 26. PRIMEIRA ENTREGA OBRIGATÓRIA
+
+Comece agora pela FASE 01.
+
+Quero receber:
+
+1. Diagnóstico do ambiente.
+2. Arquitetura técnica final.
+3. Estrutura completa de diretórios.
+4. Configuração do monorepo.
+5. package.json.
+6. pnpm-workspace.yaml.
+7. turbo.json.
+8. Docker Compose.
+9. .env.example.
+10. Estrutura inicial do Next.js.
+11. Estrutura inicial do NestJS.
+12. Configuração do PostgreSQL.
+13. Configuração do Prisma.
+14. Configuração do Redis.
+15. Sistema inicial de logs.
+16. Health checks.
+17. Configuração de testes.
+18. README.md.
+19. Documentação da instalação.
+20. Critérios de validação da primeira fase.
+
+Não avançar para a fase seguinte antes de validar a fundação.
+
+Ao terminar, apresentar:
+
+- Arquivos efetivamente criados.
+- Arquivos pendentes.
+- Comandos de execução.
+- Resultado dos testes executados.
+- Problemas encontrados.
+- Dependências externas necessárias.
+- Próxima fase recomendada.
+
+# DIRETRIZ FINAL
+
+Você está construindo a infraestrutura tecnológica de uma empresa real chamada NER AGENCY.
+
+O objetivo não é produzir uma demonstração superficial, nem criar um sistema cheio de módulos redundantes.
+
+O objetivo é construir uma operação empresarial sólida, escalável, profissional e comercialmente utilizável.
+
+Priorize:
+
+**FUNCIONALIDADE > ARQUITETURA > SEGURANÇA > INTEGRAÇÃO > EXPERIÊNCIA VISUAL > ESCALA.**
+
+Construa com qualidade de engenharia, mantenha o escopo sob controle e valide cada etapa antes de avançar.
+
+Comece pela FASE 01 — FUNDAÇÃO DO NER AGENCY OS.

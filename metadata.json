@@ -1,0 +1,6 @@
+{
+  "name": "NER AGENCY OS",
+  "description": "Sistema Operacional Proprietário da NER Agency - Marketing, Intelligence & Growth.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
