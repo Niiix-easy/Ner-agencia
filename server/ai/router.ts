@@ -428,6 +428,32 @@ export function createAiGatewayRouter(
     res.json(gateway.getPreventiveMonitoringSnapshot(scope.organizationId, isSuperAdmin));
   });
 
+  router.post('/preventive-monitoring/check', requirePermission('ai.read'), (req: Request, res: Response) => {
+    const scope = resolveScopedOrg(req, req.body?.organizationId || (req.query.organizationId as string | undefined));
+    if (!scope.allowed) {
+      res.status(403).json({ error: 'Acesso negado à validação preventiva de outra organização.' });
+      return;
+    }
+    const department = (req.body?.department || 'NER Creative') as AiDepartment;
+    const providerId = req.body?.providerId && VALID_PROVIDERS.has(req.body.providerId)
+      ? (req.body.providerId as AiProviderId)
+      : undefined;
+    const modelId = req.body?.modelId ? String(req.body.modelId) : undefined;
+    const action = req.body?.action ? String(req.body.action) : undefined;
+    const isCritical = Boolean(req.body?.isCritical);
+
+    const evaluation = gateway.evaluatePreventiveGuard({
+      organizationId: scope.organizationId,
+      userId: req.auth!.user.id,
+      department,
+      providerId,
+      modelId,
+      action,
+      isCritical,
+    });
+    res.json(evaluation);
+  });
+
   router.put('/pricing', requirePermission('ai.manage'), (req: Request, res: Response) => {
     const items = Array.isArray(req.body?.items) ? req.body.items : null;
     if (!items || items.length === 0) {

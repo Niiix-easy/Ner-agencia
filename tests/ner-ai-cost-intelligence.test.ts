@@ -1358,8 +1358,64 @@ test('Threshold Alerts Management (50/75/90/100%): per-tier rules, channels, sev
     assert.equal(dashOrgDaily.severity, 'critical');
     assert.ok(dashOrgDaily.message.includes('Alerta 75% customizado: revisar prompts de estrategia'));
     assert.ok(dashOrgDaily.message.includes('USD 1.0000 / USD 1.25'));
+
+    // 5. Pre-flight preventive guard check: allowed with warning at 80% / 95%, then blocked when department limit exceeded
+    const checkOkRes = await fetch(`${baseUrl}/api/ai/preventive-monitoring/check`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        organizationId: 'org-1',
+        department: 'NER Strategy',
+        providerId: 'openai',
+        modelId: 'gpt-4o',
+        isCritical: false,
+      }),
+    });
+    assert.equal(checkOkRes.status, 200);
+    const checkOk = await checkOkRes.json();
+    assert.equal(checkOk.allowed, true);
+    assert.equal(checkOk.evaluatedPolicies.globalDailyLimitUsd, 1.05);
+    assert.equal(checkOk.evaluatedPolicies.orgDailyLimitUsd, 1.25);
+
+    // Lower NER Strategy department cap below $1.00 spent -> pre-flight check detects breach (fallback_economical on org)
+    await fetch(`${baseUrl}/api/ai/cost-policy`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        organizationId: 'org-1',
+        onExceedAction: 'block_non_essential',
+        blockOnExceed: true,
+        departmentLimitsUsd: { 'NER Strategy': 0.5 },
+      }),
+    });
+
+    const checkBlockedNonCrit = await (
+      await fetch(`${baseUrl}/api/ai/preventive-monitoring/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          organizationId: 'org-1',
+          department: 'NER Strategy',
+          isCritical: false,
+        }),
+      })
+    ).json();
+    assert.equal(checkBlockedNonCrit.allowed, false);
+    assert.equal(checkBlockedNonCrit.exceededScope, 'department_daily');
+
+    const checkAllowedCrit = await (
+      await fetch(`${baseUrl}/api/ai/preventive-monitoring/check`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          organizationId: 'org-1',
+          department: 'NER Strategy',
+          isCritical: true,
+        }),
+      })
+    ).json();
+    assert.equal(checkAllowedCrit.allowed, true);
   } finally {
     await cleanup();
   }
 });
-

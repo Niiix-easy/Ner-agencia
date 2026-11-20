@@ -1,10 +1,14 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Activity,
   AlertTriangle,
+  Bell,
   Building2,
+  CheckCircle2,
   Cpu,
   Globe,
   Layers,
+  Play,
   RefreshCw,
   Save,
   ShieldAlert,
@@ -183,6 +187,7 @@ export function AiSettingsLimitsPanel({
   onRefresh,
   onNotify,
 }: AiSettingsLimitsPanelProps) {
+  const [activeSection, setActiveSection] = useState<'limits' | 'monitoring' | 'alerts' | 'models'>('limits');
   const [selectedOrgId, setSelectedOrgId] = useState<string>(activeOrgId);
   const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
   const [models, setModels] = useState<any[]>([]);
@@ -192,6 +197,13 @@ export function AiSettingsLimitsPanel({
   const [savingGlobal, setSavingGlobal] = useState(false);
   const [savingOrg, setSavingOrg] = useState(false);
   const [savingModels, setSavingModels] = useState(false);
+  const [guardCheckForm, setGuardCheckForm] = useState({
+    department: 'NER Creative',
+    modelKey: '',
+    isCritical: false,
+  });
+  const [guardChecking, setGuardChecking] = useState(false);
+  const [guardResult, setGuardResult] = useState<any>(null);
 
   const [globalForm, setGlobalForm] = useState({
     dailyLimitUsd: '0',
@@ -413,7 +425,51 @@ export function AiSettingsLimitsPanel({
     }
   };
 
+  const handleRunGuardCheck = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setGuardChecking(true);
+    try {
+      let providerId: string | undefined;
+      let modelId: string | undefined;
+      if (guardCheckForm.modelKey.includes('/')) {
+        const idx = guardCheckForm.modelKey.indexOf('/');
+        providerId = guardCheckForm.modelKey.slice(0, idx);
+        modelId = guardCheckForm.modelKey.slice(idx + 1);
+      }
+      const res = await apiFetch('/api/ai/preventive-monitoring/check', {
+        method: 'POST',
+        body: JSON.stringify({
+          organizationId: selectedOrgId,
+          department: guardCheckForm.department,
+          providerId,
+          modelId,
+          isCritical: guardCheckForm.isCritical,
+        }),
+      });
+      setGuardResult(res);
+    } catch (err: any) {
+      onNotify(err?.message || 'Erro ao executar validação preventiva no AI Gateway.', true);
+    } finally {
+      setGuardChecking(false);
+    }
+  };
+
   const deptStatus: any[] = snapshot?.departmentStatus || [];
+  const deptStatusMap = useMemo(() => {
+    const map: Record<string, { spentTodayUsd: number; limitUsd: number; pct: number }> = {};
+    for (const d of deptStatus) {
+      map[d.department] = d;
+    }
+    return map;
+  }, [deptStatus]);
+  const totalDeptCapsUsd = useMemo(
+    () =>
+      Object.values(orgForm.departmentLimitsUsd).reduce((sum, raw) => {
+        const val = Number(raw);
+        return sum + (Number.isFinite(val) && val > 0 ? val : 0);
+      }, 0),
+    [orgForm.departmentLimitsUsd]
+  );
   const modelStatus: any[] = snapshot?.modelStatus || [];
   const orgSummaryList: any[] = snapshot?.organizationsSummary || [];
   const activePreventiveAlerts: any[] = snapshot?.activeAlerts || [];
@@ -467,12 +523,225 @@ export function AiSettingsLimitsPanel({
         </div>
       </div>
 
-      {/* Monitoramento Preventivo em Tempo Real */}
+      {/* Faixa Compacta de Status Preventivo do AI Gateway (Sempre Visível) */}
       {snapshot && (
-        <div className="space-y-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[
+            {
+              label: 'Global Diário',
+              spent: Number(snapshot.globalDailySpentUsd || 0),
+              limit: Number(snapshot.globalPolicy?.dailyLimitUsd || 0),
+              pct: Number(snapshot.globalDailyPct || 0),
+              sub: ON_EXCEED_LABELS[snapshot.globalPolicy?.onExceedAction] || 'Padrão',
+            },
+            {
+              label: 'Global Mensal',
+              spent: Number(snapshot.globalMonthlySpentUsd || 0),
+              limit: Number(snapshot.globalPolicy?.monthlyLimitUsd || 0),
+              pct: Number(snapshot.globalMonthlyPct || 0),
+              sub: 'Soma de todas as organizações',
+            },
+            {
+              label: `Org Diário (${selectedOrgId})`,
+              spent: Number(snapshot.organizationDailySpentUsd || 0),
+              limit: Number(snapshot.organizationPolicy?.dailyLimitUsd || 0),
+              pct: Number(snapshot.organizationDailyPct || 0),
+              sub: ON_EXCEED_LABELS[snapshot.organizationPolicy?.onExceedAction] || 'Padrão',
+            },
+            {
+              label: `Org Mensal (${selectedOrgId})`,
+              spent: Number(snapshot.organizationMonthlySpentUsd || 0),
+              limit: Number(snapshot.organizationPolicy?.monthlyLimitUsd || 0),
+              pct: Number(snapshot.organizationMonthlyPct || 0),
+              sub: `${deptStatus.length} depto(s) com teto ativo`,
+            },
+          ].map((kpi) => {
+            const hasLimit = kpi.limit > 0;
+            const visual = getThresholdBarVisual(hasLimit ? kpi.pct : 0);
+            return (
+              <div
+                key={kpi.label}
+                className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1.5"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-slate-400 truncate">{kpi.label}</span>
+                  <span className="font-mono tabular-nums text-[11px] text-slate-300 shrink-0">
+                    {hasLimit ? `${kpi.pct.toFixed(1)}%` : 'Sem teto'}
+                  </span>
+                </div>
+                <div className="font-mono tabular-nums text-sm font-bold text-white">
+                  ${kpi.spent.toFixed(4)}{' '}
+                  <span className="text-[11px] font-normal text-slate-500">
+                    / {hasLimit ? `$${kpi.limit.toFixed(2)}` : '∞'}
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-slate-900 overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${hasLimit ? visual.bar : 'bg-slate-700'}`}
+                    style={{ width: `${hasLimit ? Math.min(100, Math.max(0, kpi.pct)) : 0}%` }}
+                  />
+                </div>
+                <div className="text-[10px] text-slate-400 truncate">{kpi.sub}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Navegação Interna da Administração de Limites & Monitoramento Preventivo */}
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-slate-800 pb-3">
+        {(
+          [
+            { id: 'limits', label: 'Limites: Global, Org & Depto', icon: Building2 },
+            {
+              id: 'monitoring',
+              label: `Monitoramento & Simulador (${activePreventiveAlerts.length})`,
+              icon: Activity,
+            },
+            { id: 'alerts', label: 'Alertas (50% · 75% · 90% · 100%)', icon: Bell },
+            { id: 'models', label: `Limites por Modelo (${models.length})`, icon: Cpu },
+          ] as const
+        ).map((tab) => {
+          const Icon = tab.icon;
+          const active = activeSection === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveSection(tab.id)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors ${
+                active
+                  ? 'bg-cyan-600 text-white'
+                  : 'bg-slate-950 border border-slate-800 text-slate-400 hover:text-white'
+              }`}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* SEÇÃO: MONITORAMENTO PREVENTIVO EM TEMPO REAL + SIMULADOR PRE-FLIGHT */}
+      {activeSection === 'monitoring' && snapshot && (
+        <div className="space-y-4">
+          {/* Simulador Pre-Flight Real do AI Gateway */}
+          <form
+            onSubmit={handleRunGuardCheck}
+            className="bg-slate-950 border border-cyan-500/30 rounded-xl p-4 space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="font-bold text-white text-xs flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-cyan-400" />
+                  Validador Pre-Flight do AI Gateway (Teste de Regras Ativas)
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Simula a verificação preventiva real do AI Gateway contra limites globais, da organização, do departamento e do modelo antes de enviar chamadas.
+                </p>
+              </div>
+              <button
+                type="submit"
+                disabled={guardChecking}
+                className="px-3.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold flex items-center gap-1.5 whitespace-nowrap shrink-0"
+              >
+                <Play className="w-3.5 h-3.5" />
+                {guardChecking ? 'Validando...' : 'Testar Regra no Gateway'}
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <label className="space-y-1">
+                <span className="text-slate-400 text-[11px]">Departamento</span>
+                <select
+                  value={guardCheckForm.department}
+                  onChange={(e) => setGuardCheckForm({ ...guardCheckForm, department: e.target.value })}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white"
+                >
+                  {DEPT_LIST.map((dept) => (
+                    <option key={dept} value={dept}>
+                      {dept}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="text-slate-400 text-[11px]">Modelo (opcional)</span>
+                <select
+                  value={guardCheckForm.modelKey}
+                  onChange={(e) => setGuardCheckForm({ ...guardCheckForm, modelKey: e.target.value })}
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-white font-mono"
+                >
+                  <option value="">Qualquer modelo (padrão da rota)</option>
+                  {models.map((m) => (
+                    <option key={m.id} value={`${m.providerId}/${m.modelId}`}>
+                      {m.providerId}/{m.modelId}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 self-end h-[34px] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={guardCheckForm.isCritical}
+                  onChange={(e) => setGuardCheckForm({ ...guardCheckForm, isCritical: e.target.checked })}
+                  className="rounded border-slate-700 bg-slate-950"
+                />
+                <span className="text-slate-200 text-[11px]">Chamada Crítica (preservada em bloqueio parcial)</span>
+              </label>
+            </div>
+
+            {guardResult && (
+              <div
+                className={`rounded-xl border p-3 space-y-1.5 ${
+                  !guardResult.allowed
+                    ? 'bg-rose-500/10 border-rose-500/40 text-rose-200'
+                    : guardResult.recommendEconomicalFallback
+                      ? 'bg-amber-500/10 border-amber-500/40 text-amber-200'
+                      : 'bg-emerald-500/10 border-emerald-500/40 text-emerald-200'
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2 font-bold">
+                  <span className="flex items-center gap-1.5">
+                    {guardResult.allowed ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <ShieldAlert className="w-4 h-4 shrink-0" />
+                    )}
+                    Decisão do AI Gateway:{' '}
+                    {!guardResult.allowed
+                      ? 'BLOQUEADO PREVENTIVAMENTE'
+                      : guardResult.recommendEconomicalFallback
+                        ? 'DOWNGRADE AUTOMÁTICO PARA MODELO ECONÔMICO'
+                        : 'CHAMADA PERMITIDA'}
+                  </span>
+                  {guardResult.exceededScope && (
+                    <span className="font-mono text-[11px]">Escopo: {guardResult.exceededScope}</span>
+                  )}
+                </div>
+                {guardResult.reason && <p className="text-[11px] opacity-90">{guardResult.reason}</p>}
+                {guardResult.economicalFallbackTarget && (
+                  <p className="text-[11px] font-mono">
+                    Alvo econômico selecionado: {guardResult.economicalFallbackTarget}
+                  </p>
+                )}
+                {Array.isArray(guardResult.warnings) && guardResult.warnings.length > 0 && (
+                  <div className="pt-1 space-y-0.5 text-[11px]">
+                    {guardResult.warnings.map((w: string, i: number) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                        <span>{w}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </form>
+
           <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            Monitoramento Preventivo em Tempo Real (Marcos 50% / 75% / 90% / 100%)
+            Medidores Preventivos em Tempo Real (Marcos 50% / 75% / 90% / 100%)
           </div>
 
           {activePreventiveAlerts.length > 0 && (
@@ -587,21 +856,25 @@ export function AiSettingsLimitsPanel({
         </div>
       )}
 
-      {/* Gestão Dedicada de Alertas de Limiares (50%, 75%, 90%, 100%) */}
-      <AiThresholdAlertsManager
-        snapshot={snapshot}
-        selectedOrgId={selectedOrgId}
-        isAdmin={isAdmin}
-        canManage={canManage}
-        onSaved={async () => {
-          await loadMonitoringData();
-          onRefresh();
-        }}
-        onNotify={onNotify}
-      />
+      {/* SEÇÃO: GESTÃO DEDICADA DE ALERTAS DE LIMIARES (50%, 75%, 90%, 100%) */}
+      {activeSection === 'alerts' && (
+        <AiThresholdAlertsManager
+          snapshot={snapshot}
+          selectedOrgId={selectedOrgId}
+          isAdmin={isAdmin}
+          canManage={canManage}
+          onSaved={async () => {
+            await loadMonitoringData();
+            onRefresh();
+          }}
+          onNotify={onNotify}
+        />
+      )}
 
-      {/* Formulários de Limites */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5 pt-2">
+      {/* SEÇÃO: FORMULÁRIOS DE LIMITES (GLOBAL, ORGANIZAÇÃO E DEPARTAMENTO) */}
+      {activeSection === 'limits' && (
+      <div className="space-y-5">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         {/* 1. Limites Globais */}
         <form
           onSubmit={handleSaveGlobal}
@@ -817,37 +1090,85 @@ export function AiSettingsLimitsPanel({
           </div>
 
           <div className="space-y-2 border-t border-slate-800 pt-3">
-            <div className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-violet-400" />
-              Limites Diários por Departamento (USD/dia — deixe vazio para herdar apenas o teto da organização)
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[11px] font-semibold text-slate-300 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-violet-400" />
+                Limites Diários por Departamento (USD/dia — deixe vazio para herdar o teto da organização)
+              </div>
+              <div className="flex items-center gap-2 text-[11px] font-mono tabular-nums">
+                <span className="text-slate-400">
+                  Soma deptos:{' '}
+                  <strong className="text-white">${totalDeptCapsUsd.toFixed(2)}</strong>
+                  {Number(orgForm.dailyLimitUsd) > 0 && (
+                    <span
+                      className={
+                        totalDeptCapsUsd > Number(orgForm.dailyLimitUsd)
+                          ? 'text-amber-300'
+                          : 'text-emerald-400'
+                      }
+                    >
+                      {' '}
+                      / Org ${Number(orgForm.dailyLimitUsd).toFixed(2)}
+                    </span>
+                  )}
+                </span>
+                {canManage && totalDeptCapsUsd > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setOrgForm({ ...orgForm, departmentLimitsUsd: {} })}
+                    className="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-400 hover:text-white font-sans text-[10px]"
+                  >
+                    Limpar deptos
+                  </button>
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {DEPT_LIST.map((dept) => (
-                <label
-                  key={dept}
-                  className="flex items-center justify-between gap-2 bg-slate-900/80 border border-slate-800 rounded-lg px-2.5 py-1.5"
-                >
-                  <span className="text-slate-200 truncate">{dept}</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Sem limite"
-                    disabled={!canManage}
-                    value={orgForm.departmentLimitsUsd[dept] || ''}
-                    onChange={(e) =>
-                      setOrgForm({
-                        ...orgForm,
-                        departmentLimitsUsd: {
-                          ...orgForm.departmentLimitsUsd,
-                          [dept]: e.target.value,
-                        },
-                      })
-                    }
-                    className="w-24 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-right text-white font-mono"
-                  />
-                </label>
-              ))}
+              {DEPT_LIST.map((dept) => {
+                const liveDept = deptStatusMap[dept];
+                const pct = liveDept?.pct || 0;
+                const visual = getThresholdBarVisual(liveDept?.limitUsd > 0 ? pct : 0);
+                return (
+                  <div
+                    key={dept}
+                    className="bg-slate-900/80 border border-slate-800 rounded-lg px-2.5 py-2 space-y-1.5"
+                  >
+                    <label className="flex items-center justify-between gap-2">
+                      <span className="text-slate-200 truncate font-medium">{dept}</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="Sem limite"
+                        disabled={!canManage}
+                        value={orgForm.departmentLimitsUsd[dept] || ''}
+                        onChange={(e) =>
+                          setOrgForm({
+                            ...orgForm,
+                            departmentLimitsUsd: {
+                              ...orgForm.departmentLimitsUsd,
+                              [dept]: e.target.value,
+                            },
+                          })
+                        }
+                        className="w-24 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-right text-white font-mono"
+                      />
+                    </label>
+                    <div className="flex items-center justify-between text-[10px] font-mono tabular-nums text-slate-400">
+                      <span>Hoje: ${(liveDept?.spentTodayUsd || 0).toFixed(4)}</span>
+                      <span>{liveDept?.limitUsd > 0 ? `${pct.toFixed(1)}%` : 'Herda Org'}</span>
+                    </div>
+                    {liveDept?.limitUsd > 0 && (
+                      <div className="h-1 w-full rounded-full bg-slate-950 overflow-hidden">
+                        <div
+                          className={`h-full ${visual.bar}`}
+                          style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -866,7 +1187,64 @@ export function AiSettingsLimitsPanel({
         </form>
       </div>
 
-      {/* 3. Limites Específicos por Modelo (USD/dia & Tokens) */}
+      {/* Visão Consolidada por Organização (Super Admin) */}
+      {isSuperAdmin && orgSummaryList.length > 0 && (
+        <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <h4 className="font-bold text-white text-xs flex items-center gap-1.5">
+              <Building2 className="w-4 h-4 text-cyan-400" />
+              Resumo Multi-Organização (Consumo vs Limites)
+            </h4>
+            <span className="text-[11px] text-slate-400">Clique em uma organização para editar seus tetos</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-[11px]">
+              <thead>
+                <tr className="text-slate-400 border-b border-slate-800">
+                  <th className="py-2 pr-3">Organização</th>
+                  <th className="py-2 px-3">Gasto Diário</th>
+                  <th className="py-2 px-3">Limite Diário</th>
+                  <th className="py-2 px-3">Gasto Mensal</th>
+                  <th className="py-2 px-3">Limite Mensal</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono tabular-nums">
+                {orgSummaryList.map((orgRow) => (
+                  <tr
+                    key={orgRow.organizationId}
+                    onClick={() => setSelectedOrgId(orgRow.organizationId)}
+                    className={`border-b border-slate-900 cursor-pointer hover:bg-slate-900/70 ${
+                      selectedOrgId === orgRow.organizationId ? 'bg-cyan-500/10' : ''
+                    }`}
+                  >
+                    <td className="py-2 pr-3 font-sans font-semibold text-white">
+                      {orgRow.organizationName}{' '}
+                      <span className="text-slate-500 font-mono">({orgRow.organizationId})</span>
+                    </td>
+                    <td className="py-2 px-3 text-slate-200">
+                      ${Number(orgRow.dailySpentUsd || 0).toFixed(4)}
+                    </td>
+                    <td className="py-2 px-3 text-cyan-300">
+                      ${Number(orgRow.dailyLimitUsd || 0).toFixed(2)}
+                    </td>
+                    <td className="py-2 px-3 text-slate-200">
+                      ${Number(orgRow.monthlySpentUsd || 0).toFixed(4)}
+                    </td>
+                    <td className="py-2 px-3 text-cyan-300">
+                      ${Number(orgRow.monthlyLimitUsd || 0).toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      </div>
+      )}
+
+      {/* SEÇÃO: LIMITES ESPECÍFICOS POR MODELO (USD/DIA & TOKENS) */}
+      {activeSection === 'models' && (
       <form
         onSubmit={handleSavePerModelLimits}
         className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3"
@@ -1008,59 +1386,6 @@ export function AiSettingsLimitsPanel({
           </table>
         </div>
       </form>
-
-      {/* Visão Consolidada por Organização (Super Admin) */}
-      {isSuperAdmin && orgSummaryList.length > 0 && (
-        <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <h4 className="font-bold text-white text-xs flex items-center gap-1.5">
-              <AlertTriangle className="w-4 h-4 text-amber-400" />
-              Resumo Multi-Organização (Consumo vs Limites)
-            </h4>
-            <span className="text-[11px] text-slate-400">Clique em uma linha para editar seus tetos</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-[11px]">
-              <thead>
-                <tr className="text-slate-400 border-b border-slate-800">
-                  <th className="py-2 pr-3">Organização</th>
-                  <th className="py-2 px-3">Gasto Diário</th>
-                  <th className="py-2 px-3">Limite Diário</th>
-                  <th className="py-2 px-3">Gasto Mensal</th>
-                  <th className="py-2 px-3">Limite Mensal</th>
-                </tr>
-              </thead>
-              <tbody>
-                {orgSummaryList.map((orgRow) => (
-                  <tr
-                    key={orgRow.organizationId}
-                    onClick={() => setSelectedOrgId(orgRow.organizationId)}
-                    className={`border-b border-slate-900 cursor-pointer hover:bg-slate-900/70 ${
-                      selectedOrgId === orgRow.organizationId ? 'bg-cyan-500/10' : ''
-                    }`}
-                  >
-                    <td className="py-2 pr-3 font-semibold text-white">
-                      {orgRow.organizationName}{' '}
-                      <span className="text-slate-500 font-mono">({orgRow.organizationId})</span>
-                    </td>
-                    <td className="py-2 px-3 font-mono text-slate-200">
-                      ${Number(orgRow.dailySpentUsd || 0).toFixed(4)}
-                    </td>
-                    <td className="py-2 px-3 font-mono text-cyan-300">
-                      ${Number(orgRow.dailyLimitUsd || 0).toFixed(2)}
-                    </td>
-                    <td className="py-2 px-3 font-mono text-slate-200">
-                      ${Number(orgRow.monthlySpentUsd || 0).toFixed(4)}
-                    </td>
-                    <td className="py-2 px-3 font-mono text-cyan-300">
-                      ${Number(orgRow.monthlyLimitUsd || 0).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
       )}
     </div>
   );

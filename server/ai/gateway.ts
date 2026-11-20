@@ -1405,6 +1405,83 @@ export class AiGatewayService {
     };
   }
 
+  public evaluatePreventiveGuard(params: {
+    organizationId: string;
+    userId: string;
+    department: AiDepartment;
+    providerId?: AiProviderId;
+    modelId?: string;
+    action?: string;
+    isCritical?: boolean;
+  }) {
+    const ai = this.aiState();
+    const policy = this.getCostPolicy(params.organizationId);
+    const globalPolicy = this.getGlobalCostPolicy();
+    const result = evaluateCostPolicyBeforeRequest(
+      policy,
+      ai.usageLogs,
+      params.organizationId,
+      params.userId,
+      params.department,
+      ai.models,
+      {
+        providerId: params.providerId,
+        modelId: params.modelId,
+        action: params.action,
+        isCritical: Boolean(params.isCritical),
+        exceptions: ai.limitExceptions || [],
+        globalPolicy,
+      }
+    );
+    const economicalTarget = result.recommendEconomicalFallback
+      ? this.pickMostEconomicalModel(params.organizationId)
+      : null;
+
+    const reasonStr = String(result.reason || '');
+    const exceededScope = !reasonStr
+      ? null
+      : reasonStr.includes('global diário')
+        ? 'global_daily'
+        : reasonStr.includes('global mensal')
+          ? 'global_monthly'
+          : reasonStr.includes('da organização') && reasonStr.includes('diário')
+            ? 'organization_daily'
+            : reasonStr.includes('da organização') && reasonStr.includes('mensal')
+              ? 'organization_monthly'
+              : reasonStr.includes('do departamento')
+                ? 'department_daily'
+                : reasonStr.includes('do provedor')
+                  ? 'provider_daily'
+                  : reasonStr.includes('do modelo')
+                    ? 'model_daily'
+                    : reasonStr.includes('do usuário')
+                      ? 'user_daily'
+                      : 'policy_limit';
+
+    return {
+      ...result,
+      exceededScope,
+      organizationId: params.organizationId,
+      department: params.department,
+      providerId: params.providerId || null,
+      modelId: params.modelId || null,
+      isCritical: Boolean(params.isCritical),
+      economicalFallbackTarget: economicalTarget
+        ? `${economicalTarget.providerId}/${economicalTarget.modelId}`
+        : null,
+      evaluatedPolicies: {
+        globalDailyLimitUsd: globalPolicy.dailyLimitUsd,
+        globalMonthlyLimitUsd: globalPolicy.monthlyLimitUsd,
+        globalOnExceedAction: globalPolicy.onExceedAction,
+        orgDailyLimitUsd: policy.dailyLimitUsd,
+        orgMonthlyLimitUsd: policy.monthlyLimitUsd,
+        orgOnExceedAction: policy.onExceedAction,
+        departmentDailyLimitUsd: policy.departmentLimitsUsd?.[params.department] ?? 0,
+      },
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
   public getDashboardAnalytics(organizationId: string, filterOrPeriod: UsagePeriodFilter | UsageFilterOptions = 'all') {
     const ai = this.aiState();
     const providers = this.listProviders(organizationId);
