@@ -2,9 +2,12 @@ import crypto from 'node:crypto';
 import express, { Express, Request, Response, NextFunction } from 'express';
 import { PersistentStore, hashPassword } from './store.ts';
 import {
+  GoogleTokenVerifier,
   canAccessClientResource,
   canAccessResourceOrg,
   createAuthMiddleware,
+  getGoogleAuthConfig,
+  handleGoogleLogin,
   handleLogin,
   handleLogout,
   hasPermission,
@@ -35,6 +38,7 @@ export interface CreateAppOptions {
   stripeWebhookSecret?: string;
   aiAdapters?: Record<AiProviderId, AiProviderAdapter>;
   aiMasterKeyOverride?: string;
+  googleTokenVerifier?: GoogleTokenVerifier;
 }
 
 const VALID_ROLES = new Set<RoleName>([
@@ -124,8 +128,24 @@ export function createApp(
   });
 
   // --- AUTH ---
+  app.get('/api/auth/providers', (_req: Request, res: Response) => {
+    const googleCfg = getGoogleAuthConfig();
+    res.json({
+      local: true,
+      google: {
+        enabled: googleCfg.enabled,
+        clientId: googleCfg.clientId,
+        allowAutoProvision: googleCfg.allowAutoProvision,
+      },
+    });
+  });
+
   app.post('/api/auth/login', (req: Request, res: Response) => {
     handleLogin(store, req, res);
+  });
+
+  app.post('/api/auth/google', (req: Request, res: Response) => {
+    void handleGoogleLogin(store, req, res, options.googleTokenVerifier);
   });
 
   app.post('/api/auth/logout', (req: Request, res: Response) => {

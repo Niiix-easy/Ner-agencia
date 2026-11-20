@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import type { Request, Response, NextFunction } from 'express';
-import { PersistentStore, hashToken, verifyPassword } from '../store.ts';
+import { PersistentStore, hashPassword, hashToken, verifyPassword } from '../store.ts';
 import { ROLE_PERMISSIONS, RoleName, User } from '../types.ts';
 
 export interface AuthContext {
@@ -292,4 +292,261 @@ export function handleLogout(store: PersistentStore, req: Request, res: Response
   }
   res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
   res.json({ success: true });
+}
+
+export interface GoogleIdentityProfile {
+  sub: string;
+  email: string;
+  emailVerified: boolean;
+  name: string;
+  picture?: string | null;
+}
+
+export type GoogleTokenVerifier = (params: {
+  idToken?: string;
+  accessToken?: string;
+  expectedClientId: string;
+}) => Promise<GoogleIdentityProfile>;
+
+const SAFE_AUTO_PROVISION_ROLES = new Set<RoleName>([
+  'Criativo',
+  'Comercial',
+  'Gestor de Tráfego',
+  'Financeiro',
+]);
+
+export function getGoogleAuthConfig(): {
+  enabled: boolean;
+  clientId: string | null;
+  allowAutoProvision: boolean;
+  defaultRole: RoleName;
+} {
+  const clientId = (process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || '').trim() || null;
+  const allowAutoProvision = String(process.env.GOOGLE_AUTH_ALLOW_AUTO_PROVISION || 'false').toLowerCase() === 'true';
+  const rawDefaultRole = (process.env.GOOGLE_AUTH_DEFAULT_ROLE || 'Criativo').trim() as RoleName;
+  const defaultRole: RoleName = SAFE_AUTO_PROVISION_ROLES.has(rawDefaultRole) ? rawDefaultRole : 'Criativo';
+  return {
+    enabled: Boolean(clientId),
+    clientId,
+    allowAutoProvision,
+    defaultRole,
+  };
+}
+
+export async function verifyGoogleTokenDefault(params: {
+  idToken?: string;
+  accessToken?: string;
+  expectedClientId: string;
+}): Promise<GoogleIdentityProfile> {
+  const { idToken, accessToken, expectedClientId } = params;
+
+  if (idToken) {
+    const res = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`
+    );
+    if (!res.ok) {
+      throw new Error('Token Google (ID Token) inválido ou expirado.');
+    }
+    const payload: any = await res.json();
+    const validIss =
+      payload.iss === 'https://accounts.google.com' || payload.iss === 'accounts.google.com';
+    if (!validIss || payload.aud !== expectedClientId) {
+      throw new Error('Token Google com audiência ou emissor inválido.');
+    }
+    const expSec = Number(payload.exp || 0);
+    if (expSec > 0 && expSec * 1000 <= Date.now()) {
+      throw new Error('Token Google expirado.');
+    }
+    const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
+    if (!payload.sub || !payload.email || !emailVerified) {
+      throw new Error('Conta Google sem e-mail verificado.');
+    }
+    return {
+      sub: String(payload.sub),
+      email: String(payload.email).trim().toLowerCase(),
+      emailVerified: true,
+      name: String(payload.name || payload.email.split('@')[0]),
+      picture: payload.picture ? String(payload.picture) : null,
+    };
+  }
+
+  if (accessToken) {
+    // 1. Validate token audience & expiry against Google tokeninfo
+    const infoRes = await fetch(
+      `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${encodeURIComponent(accessToken)}`
+    );
+    if (!infoRes.ok) {
+      throw new Error('Token de acesso Google inválido ou expirado.');
+    }
+    const tokenInfo: any = await infoRes.json();
+    if (tokenInfo.aud !== expectedClientId) {
+      throw new Error('Token de acesso Google não corresponde ao Client ID configurado.');
+    }
+    if (Number(tokenInfo.expires_in || 0) <= 0) {
+      throw new Error('Token de acesso Google expirado.');
+    }
+
+    // 2. Fetch verified user identity profile from Google userinfo
+    const profileRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!profileRes.ok) {
+      throw new Error('Não foi possível obter o perfil autenticado do Google.');
+    }
+    const profile: any = await profileRes.json();
+    const emailVerified = profile.email_verified === true || profile.email_verified === 'true';
+    if (!profile.sub || !profile.email || !emailVerified) {
+      throw new Error('Conta Google sem e-mail verificado.');
+    }
+    return {
+      sub: String(profile.sub),
+      email: String(profile.email).trim().toLowerCase(),
+      emailVerified: true,
+      name: String(profile.name || profile.email.split('@')[0]),
+      picture: profile.picture ? String(profile.picture) : null,
+    };
+  }
+
+  throw new Error('Credencial Google ausente.');
+}
+
+export async function handleGoogleLogin(
+  store: PersistentStore,
+  req: Request,
+  res: Response,
+  verifier: GoogleTokenVerifier = verifyGoogleTokenDefault
+): Promise<void> {
+  const cfg = getGoogleAuthConfig();
+  if (!cfg.enabled || !cfg.clientId) {
+    res.status(503).json({
+      error: 'Login com Google não configurado no servidor. Defina GOOGLE_CLIENT_ID nas variáveis de ambiente.',
+    });
+    return;
+  }
+
+  const authHeader = req.headers.authorization;
+  const bearerAccessToken =
+    authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : undefined;
+  const bodyCredential = typeof req.body?.credential === 'string' ? req.body.credential.trim() : undefined;
+  const bodyAccessToken = typeof req.body?.accessToken === 'string' ? req.body.accessToken.trim() : undefined;
+
+  const idToken = bodyCredential || undefined;
+  const accessToken = bearerAccessToken || bodyAccessToken || undefined;
+
+  if (!idToken && !accessToken) {
+    res.status(400).json({ error: 'Token Google obrigatório (credential ou Bearer accessToken).' });
+    return;
+  }
+
+  const rateKey = `${req.ip || 'local'}:google_oauth`;
+  if (!checkRateLimit(rateKey)) {
+    res.status(429).json({ error: 'Muitas tentativas de login com Google. Aguarde alguns minutos.' });
+    return;
+  }
+
+  let profile: GoogleIdentityProfile;
+  try {
+    profile = await verifier({
+      idToken,
+      accessToken,
+      expectedClientId: cfg.clientId,
+    });
+  } catch (err: any) {
+    recordFailedLogin(rateKey);
+    res.status(401).json({ error: err?.message || 'Falha ao validar credenciais do Google.' });
+    return;
+  }
+
+  if (!profile.emailVerified || !profile.email || !profile.sub) {
+    recordFailedLogin(rateKey);
+    res.status(401).json({ error: 'Conta Google sem e-mail verificado.' });
+    return;
+  }
+
+  const normalizedEmail = profile.email.trim().toLowerCase();
+  const state = store.getState();
+
+  let user = state.users.find(
+    (u) =>
+      (u.googleSub && u.googleSub === profile.sub) ||
+      u.email.toLowerCase() === normalizedEmail
+  );
+
+  let autoProvisioned = false;
+  if (!user) {
+    if (!cfg.allowAutoProvision) {
+      res.status(403).json({
+        error: `Conta Google (${normalizedEmail}) verificada, mas ainda não cadastrada no NER AGENCY OS. Solicite o cadastro ao administrador em NER Core → Usuários.`,
+      });
+      return;
+    }
+
+    const defaultOrg =
+      state.organizations.find((o) => o.status === 'Ativo') || state.organizations[0];
+    if (!defaultOrg) {
+      res.status(500).json({ error: 'Nenhuma organização ativa disponível para provisionamento.' });
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    user = {
+      id: `usr-g-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`,
+      organizationId: defaultOrg.id,
+      clientId: null,
+      name: profile.name || normalizedEmail.split('@')[0],
+      email: normalizedEmail,
+      passwordHash: hashPassword(crypto.randomBytes(24).toString('hex')),
+      role: cfg.defaultRole,
+      status: 'Ativo',
+      emailVerifiedAt: nowIso,
+      googleSub: profile.sub,
+      avatarUrl: profile.picture || null,
+      authProvider: 'google',
+      createdAt: nowIso,
+    };
+    state.users.push(user);
+    autoProvisioned = true;
+    store.audit(user.organizationId, user.id, 'AUTH_GOOGLE_USER_PROVISIONED', 'User', user.id, {
+      email: user.email,
+      role: user.role,
+    });
+  } else {
+    if (user.status !== 'Ativo') {
+      res.status(403).json({ error: 'Usuário inativo. Contate o administrador.' });
+      return;
+    }
+    const org = state.organizations.find((o) => o.id === user!.organizationId);
+    if (org && org.status === 'Suspenso' && user.role !== 'Super Admin') {
+      res.status(403).json({ error: 'Organização suspensa. Contate o suporte.' });
+      return;
+    }
+    if (!user.googleSub) user.googleSub = profile.sub;
+    if (!user.emailVerifiedAt) user.emailVerifiedAt = new Date().toISOString();
+    if (profile.picture && !user.avatarUrl) user.avatarUrl = profile.picture;
+  }
+
+  clearFailedLogin(rateKey);
+  const { token, expiresAt } = issueSession(store, user);
+  store.audit(user.organizationId, user.id, 'AUTH_GOOGLE_LOGIN_SUCCESS', 'Session', user.id, {
+    role: user.role,
+    autoProvisioned,
+  });
+
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: SESSION_TTL_MS,
+  });
+
+  res.json({
+    success: true,
+    token,
+    expiresAt,
+    provider: 'google',
+    autoProvisioned,
+    user: sanitizeUser(user),
+    permissions: ROLE_PERMISSIONS[user.role as RoleName] || [],
+  });
 }

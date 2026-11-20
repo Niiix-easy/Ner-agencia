@@ -100,6 +100,9 @@ export interface User {
   role: RoleName;
   status: 'Ativo' | 'Inativo';
   emailVerifiedAt: string | null;
+  googleSub?: string | null;
+  avatarUrl?: string | null;
+  authProvider?: 'local' | 'google';
   createdAt: string;
 }
 

@@ -1,9 +1,128 @@
-import React, { useState } from 'react';
-import { Lock, Mail, ArrowRight, ShieldCheck, AlertCircle, CheckCircle2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Lock, Mail, ArrowRight, ShieldCheck, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+
+interface GoogleTokenResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
+interface GoogleTokenClient {
+  requestAccessToken: (overrideConfig?: { prompt?: string }) => void;
+}
+
+interface GoogleAccountsOAuth2 {
+  initTokenClient: (config: {
+    client_id: string;
+    scope: string;
+    callback: (response: GoogleTokenResponse) => void;
+    error_callback?: (error: { type?: string; message?: string }) => void;
+  }) => GoogleTokenClient;
+}
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: GoogleAccountsOAuth2;
+      };
+    };
+  }
+}
+
+interface AuthProvidersResponse {
+  local: boolean;
+  google: {
+    enabled: boolean;
+    clientId: string | null;
+    allowAutoProvision: boolean;
+  };
+}
 
 interface LoginScreenProps {
   onLoginSuccess: (payload: { user: any; permissions: string[]; token: string }) => void;
+}
+
+const GIS_SCRIPT_ID = 'google-identity-services-sdk';
+const GIS_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
+
+let gisLoadPromise: Promise<void> | null = null;
+
+function loadGoogleIdentityScript(): Promise<void> {
+  if (typeof window === 'undefined') {
+    return Promise.reject(new Error('Ambiente sem navegador.'));
+  }
+  if (window.google?.accounts?.oauth2) {
+    return Promise.resolve();
+  }
+  if (gisLoadPromise) {
+    return gisLoadPromise;
+  }
+
+  gisLoadPromise = new Promise<void>((resolve, reject) => {
+    const existing = document.getElementById(GIS_SCRIPT_ID) as HTMLScriptElement | null;
+    if (existing) {
+      if (window.google?.accounts?.oauth2) {
+        resolve();
+        return;
+      }
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener(
+        'error',
+        () => {
+          gisLoadPromise = null;
+          reject(new Error('Não foi possível carregar o Google Identity Services.'));
+        },
+        { once: true }
+      );
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.id = GIS_SCRIPT_ID;
+    script.src = GIS_SCRIPT_SRC;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      if (window.google?.accounts?.oauth2) {
+        resolve();
+      } else {
+        gisLoadPromise = null;
+        reject(new Error('SDK Google Identity carregado sem suporte a OAuth2.'));
+      }
+    };
+    script.onerror = () => {
+      gisLoadPromise = null;
+      reject(new Error('Falha ao carregar o SDK do Google. Verifique sua conexão ou bloqueador de scripts.'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return gisLoadPromise;
+}
+
+function GoogleLogoIcon() {
+  return (
+    <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#4285F4"
+        d="M23.49 12.27c0-.79-.07-1.54-.2-2.27H12v4.3h6.44a5.5 5.5 0 0 1-2.39 3.61v3h3.87c2.26-2.08 3.57-5.15 3.57-8.64z"
+      />
+      <path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.95-1.07 7.93-2.91l-3.87-3c-1.07.72-2.44 1.15-4.06 1.15-3.12 0-5.77-2.11-6.72-4.95H1.28v3.1A11.99 11.99 0 0 0 12 24z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M5.28 14.29A7.2 7.2 0 0 1 4.9 12c0-.79.14-1.56.38-2.29V6.61H1.28A12 12 0 0 0 0 12c0 1.94.46 3.77 1.28 5.39l4-3.1z"
+      />
+      <path
+        fill="#EA4335"
+        d="M12 4.75c1.76 0 3.34.61 4.59 1.8l3.44-3.44C17.95 1.19 15.24 0 12 0A11.99 11.99 0 0 0 1.28 6.61l4 3.1C6.23 6.86 8.88 4.75 12 4.75z"
+      />
+    </svg>
+  );
 }
 
 const DEMO_PROFILES = [
@@ -19,8 +138,42 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [email, setEmail] = useState('maycon@neragency.com');
   const [password, setPassword] = useState('NerAgency@2026');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [forgotMessage, setForgotMessage] = useState<string | null>(null);
+  const [providersLoaded, setProvidersLoaded] = useState(false);
+  const [googleConfig, setGoogleConfig] = useState<{
+    enabled: boolean;
+    clientId: string | null;
+    allowAutoProvision: boolean;
+  }>({
+    enabled: false,
+    clientId: null,
+    allowAutoProvision: false,
+  });
+
+  useEffect(() => {
+    let active = true;
+    apiFetch<AuthProvidersResponse>('/api/auth/providers')
+      .then((res) => {
+        if (!active) return;
+        const cfg = res?.google || { enabled: false, clientId: null, allowAutoProvision: false };
+        setGoogleConfig(cfg);
+        setProvidersLoaded(true);
+        if (cfg.enabled && cfg.clientId) {
+          loadGoogleIdentityScript().catch(() => {
+            // Will surface cleanly if user clicks Google login
+          });
+        }
+      })
+      .catch(() => {
+        if (active) setProvidersLoaded(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,6 +202,79 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    setError(null);
+    setForgotMessage(null);
+
+    if (!googleConfig.enabled || !googleConfig.clientId) {
+      setError(
+        'Login com Google aguardando configuração do servidor. Defina GOOGLE_CLIENT_ID nas variáveis de ambiente e autorize esta origem no Google Cloud Console.'
+      );
+      return;
+    }
+
+    setGoogleLoading(true);
+    try {
+      await loadGoogleIdentityScript();
+      const oauth2 = window.google?.accounts?.oauth2;
+      if (!oauth2) {
+        throw new Error('Serviço Google Identity indisponível no navegador.');
+      }
+
+      const tokenClient = oauth2.initTokenClient({
+        client_id: googleConfig.clientId,
+        scope: 'openid email profile',
+        callback: async (tokenResponse: GoogleTokenResponse) => {
+          if (tokenResponse.error || !tokenResponse.access_token) {
+            setError(
+              tokenResponse.error === 'access_denied'
+                ? 'Acesso com Google cancelado pelo usuário.'
+                : tokenResponse.error_description || 'Falha na autenticação com o Google.'
+            );
+            setGoogleLoading(false);
+            return;
+          }
+
+          try {
+            // Pass Google access token purely in-memory via Authorization Bearer header (never persisted)
+            const response = await fetch('/api/auth/google', {
+              method: 'POST',
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${tokenResponse.access_token}`,
+              },
+              body: JSON.stringify({}),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              throw new Error(data.error || `Erro HTTP ${response.status} ao validar conta Google.`);
+            }
+            sessionStorage.setItem('ner_token', data.token);
+            onLoginSuccess(data);
+          } catch (err: any) {
+            setError(err?.message || 'Não foi possível concluir o login com Google.');
+          } finally {
+            setGoogleLoading(false);
+          }
+        },
+        error_callback: (err) => {
+          if (err?.type === 'popup_failed_to_open') {
+            setError('O popup do Google foi bloqueado pelo navegador. Permita popups para continuar.');
+          } else if (err?.type !== 'popup_closed') {
+            setError(err?.message || 'Não foi possível abrir o login com Google.');
+          }
+          setGoogleLoading(false);
+        },
+      });
+
+      tokenClient.requestAccessToken({ prompt: 'select_account' });
+    } catch (err: any) {
+      setError(err?.message || 'Erro ao iniciar autenticação com Google.');
+      setGoogleLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
       <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl space-y-6">
@@ -63,8 +289,8 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         </div>
 
         {error && (
-          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0" />
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
         )}
@@ -111,13 +337,50 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || googleLoading}
             className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-sm font-semibold flex items-center justify-center gap-2 transition-all"
           >
             {loading ? 'Validando...' : mode === 'login' ? 'Entrar na Plataforma' : 'Solicitar Redefinição'}
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
+
+        {mode === 'login' && (
+          <div className="space-y-2.5">
+            <div className="relative flex items-center justify-center">
+              <div className="w-full border-t border-slate-800" />
+              <span className="bg-slate-900 px-3 text-[11px] uppercase tracking-wider text-slate-500 shrink-0">
+                ou continue com
+              </span>
+              <div className="w-full border-t border-slate-800" />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={loading || googleLoading || !providersLoaded}
+              className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-slate-100 disabled:opacity-60 text-slate-900 border border-slate-200 text-sm font-semibold flex items-center justify-center gap-2.5 transition-all shadow-sm"
+            >
+              {googleLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-700" />
+                  <span>Conectando ao Google...</span>
+                </>
+              ) : (
+                <>
+                  <GoogleLogoIcon />
+                  <span>Entrar com o Google</span>
+                </>
+              )}
+            </button>
+
+            {providersLoaded && !googleConfig.enabled && (
+              <p className="text-[11px] text-slate-500 text-center">
+                Requer <span className="font-mono text-slate-400">GOOGLE_CLIENT_ID</span> configurado no servidor.
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center justify-between text-xs pt-1">
           <button
