@@ -1,0 +1,616 @@
+// NER AGENCY OS — Consolidated Prisma Schema (Phases 01 to 13 + Digital Studio)
+// Reference schema for PostgreSQL production deployment via Docker Compose.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// 1. NER CORE (Identity, Orgs, RBAC, Audit)
+// ==========================================
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  legalName String
+  document  String?
+  slug      String   @unique
+  status    String   @default("Ativo")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members       OrganizationMember[]
+  clients       Client[]
+  roles         Role[]
+  leads         Lead[]
+  opportunities Opportunity[]
+  proposals     Proposal[]
+  contracts     Contract[]
+  projects      Project[]
+  subscriptions Subscription[]
+  auditLogs     AuditLog[]
+}
+
+model User {
+  id              String    @id @default(cuid())
+  name            String
+  email           String    @unique
+  passwordHash    String
+  avatarUrl       String?
+  status          String    @default("Ativo")
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  memberships OrganizationMember[]
+  sessions    Session[]
+  auditLogs   AuditLog[]
+}
+
+model Role {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  isSystem       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions  RolePermission[]
+  members      OrganizationMember[]
+
+  @@unique([organizationId, name])
+}
+
+model Permission {
+  id          String @id @default(cuid())
+  key         String @unique
+  description String
+  module      String
+
+  roles RolePermission[]
+}
+
+model RolePermission {
+  id           String @id @default(cuid())
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  roleId         String
+  clientId       String?
+  status         String   @default("Ativo")
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Client {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  legalName      String?
+  document       String?
+  email          String?
+  phone          String?
+  website        String?
+  segment        String
+  category       String   @default("Pequena Empresa")
+  status         String   @default("Ativo")
+  mrr            Float    @default(0)
+  health         String   @default("Bom")
+  manager        String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  proposals    Proposal[]
+  contracts    Contract[]
+  projects     Project[]
+
+  @@index([organizationId])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  action         String
+  resource       String
+  resourceId     String
+  metadata       Json?
+  ipAddress      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+}
+
+// ==========================================
+// 2. NER BUSINESS & DIGITAL STUDIO
+// ==========================================
+
+model CommercialPlan {
+  id                String   @id @default(cuid())
+  code              String   @unique
+  name              String
+  targetAudience    String
+  category          String   // Landing Pages | Sites | E-commerce | Software | Manutenção
+  setupPrice        Float
+  recurringPrice    Float
+  recurrence        String   @default("Mensal")
+  deliverables      Json
+  limits            Json
+  isActive          Boolean  @default(true)
+  updatedAt         DateTime @updatedAt
+}
+
+model Lead {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  email          String
+  phone          String?
+  company        String
+  segment        String?
+  source         String
+  utmSource      String?
+  utmCampaign    String?
+  utmMedium      String?
+  status         String   @default("Novo")
+  estimatedValue Float    @default(0)
+  assignedUserId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model Opportunity {
+  id             String   @id @default(cuid())
+  organizationId String
+  clientId       String?
+  leadId         String?
+  name           String
+  stage          String   @default("Novo lead")
+  value          Float    @default(0)
+  probability    Int      @default(20)
+  responsible    String
+  expectedClose  String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model Proposal {
+  id             String   @id @default(cuid())
+  organizationId String
+  number         String   @unique
+  clientId       String
+  title          String
+  planCode       String?
+  setupValue     Float    @default(0)
+  recurringValue Float    @default(0)
+  totalValue     Float
+  status         String   @default("Rascunho")
+  validUntil     String
+  responsible    String
+  acceptedAt     DateTime?
+  acceptedBy     String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id])
+
+  @@index([organizationId])
+}
+
+model Contract {
+  id             String   @id @default(cuid())
+  organizationId String
+  number         String   @unique
+  clientId       String
+  proposalId     String?
+  planCode       String?
+  serviceType    String   @default("Landing Page")
+  title          String
+  setupValue     Float    @default(0)
+  recurringValue Float    @default(0)
+  recurrence     String   @default("Mensal")
+  status         String   @default("Ativo")
+  startDate      String
+  endDate        String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client       @relation(fields: [clientId], references: [id])
+  projects     Project[]
+
+  @@index([organizationId])
+}
+
+// ==========================================
+// 3. NER PROJECTS & APPROVALS
+// ==========================================
+
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  clientId       String
+  contractId     String?
+  name           String
+  projectType    String   // Landing Page | Site | E-commerce | Software | Performance | Growth
+  status         String   @default("Planejamento")
+  priority       String   @default("Normal")
+  startDate      String
+  dueDate        String
+  managerId      String
+  progress       Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client       Client        @relation(fields: [clientId], references: [id])
+  contract     Contract?     @relation(fields: [contractId], references: [id])
+  tasks        Task[]
+  deliverables Deliverable[]
+  approvals    Approval[]
+
+  @@index([organizationId, clientId])
+}
+
+model Task {
+  id             String   @id @default(cuid())
+  organizationId String
+  projectId      String
+  title          String
+  status         String   @default("A fazer")
+  priority       String   @default("Normal")
+  assigneeId     String?
+  dueDate        String?
+  estimatedHours Float    @default(0)
+  actualHours    Float    @default(0)
+  createdAt      DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, projectId])
+}
+
+model Deliverable {
+  id             String   @id @default(cuid())
+  organizationId String
+  projectId      String
+  name           String
+  type           String   @default("Entregável")
+  version        String   @default("v1.0")
+  status         String   @default("Planejado")
+  dueDate        String?
+  createdAt      DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, projectId])
+}
+
+model Approval {
+  id             String    @id @default(cuid())
+  organizationId String
+  projectId      String
+  clientId       String
+  title          String
+  version        String
+  requester      String
+  approver       String
+  status         String    @default("Pendente")
+  comment        String?
+  decidedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, clientId])
+}
+
+// ==========================================
+// 4. NER BILLING & STRIPE WEBHOOKS
+// ==========================================
+
+model Subscription {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  planCode             String
+  provider             String   @default("stripe")
+  externalSubId        String?  @unique
+  externalCustomerId   String?
+  status               String   @default("incomplete") // incomplete | trialing | active | past_due | canceled
+  currentPeriodEnd     DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model BillingWebhookEvent {
+  id            String   @id @default(cuid())
+  provider      String
+  eventId       String   @unique
+  eventType     String
+  payload       Json
+  status        String   @default("processed")
+  processedAt   DateTime @default(now())
+}
+
+// ==========================================
+// 5. NER AI GATEWAY & NER AI CENTER
+// ==========================================
+
+model AiProviderConfig {
+  id                 String   @id @default(cuid())
+  providerId         String
+  displayName        String
+  scope              String   @default("global") // global | organization
+  organizationId     String?
+  encryptedApiKey    String?
+  keyMask            String?
+  baseUrl            String
+  organizationHeader String?
+  projectIdHeader    String?
+  defaultModel       String
+  rateLimitPerMin    Int      @default(60)
+  status             String   @default("AGUARDANDO CONFIGURAÇÃO")
+  lastCheckedAt      DateTime?
+  lastError          String?
+  capabilities       Json
+  updatedAt          DateTime @updatedAt
+
+  @@index([organizationId, providerId])
+}
+
+model AiModel {
+  id                   String    @id @default(cuid())
+  providerId           String
+  modelId              String
+  displayName          String
+  isActive             Boolean   @default(true)
+  isDefaultForProvider Boolean   @default(false)
+  priority             Int       @default(1)
+  contextWindow        Int       @default(128000)
+  maxInputTokens       Int?
+  maxOutputTokens      Int?
+  dailyTokenLimit      Int?
+  capabilities         Json
+  inputCostPer1M       Float?
+  outputCostPer1M      Float?
+  cacheInputCostPer1M  Float?
+  reasoningCostPer1M   Float?
+  currency             String    @default("USD")
+  effectiveFrom        String?
+  priceSource          String?
+  pricingVerified      Boolean   @default(false)
+  source               String    @default("catalog")
+  lastVerifiedAt       DateTime?
+  updatedAt            DateTime? @updatedAt
+
+  @@unique([providerId, modelId])
+}
+
+model AiRoutingRule {
+  id                         String   @id @default(cuid())
+  purpose                    String   @unique
+  label                      String
+  primaryProviderId          String
+  primaryModelId             String
+  fallbackProviderId         String?
+  fallbackModelId            String?
+  allowMoreExpensiveFallback Boolean  @default(false)
+  maxCostUsdPerRequest       Float?
+  timeoutMs                  Int      @default(30000)
+  maxRetries                 Int      @default(1)
+  isActive                   Boolean  @default(true)
+  updatedAt                  DateTime @updatedAt
+}
+
+model AiPromptTemplate {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  code                String
+  name                String
+  department          String
+  purpose             String
+  version             Int      @default(1)
+  isActive            Boolean  @default(true)
+  systemPrompt        String
+  userTemplate        String
+  preferredProviderId String?
+  preferredModelId    String?
+  temperature         Float    @default(0.4)
+  maxOutputTokens     Int      @default(1200)
+  history             Json
+  updatedAt           DateTime @updatedAt
+
+  @@unique([organizationId, code])
+}
+
+model AiCostPolicy {
+  organizationId      String   @id
+  dailyLimitUsd       Float    @default(25)
+  monthlyLimitUsd     Float    @default(500)
+  userDailyLimitUsd   Float    @default(10)
+  alertThresholdPct   Int      @default(80)
+  alertThresholds     Json     @default("[50,75,90,100]")
+  blockOnExceed       Boolean  @default(true)
+  onExceedAction      String   @default("block_non_essential")
+  departmentLimitsUsd Json
+  providerLimitsUsd   Json?
+  modelLimitsUsd      Json?
+  actionLimitsUsd     Json?
+  restrictedActions   Json?
+  updatedAt           DateTime @updatedAt
+}
+
+model AiActionCatalog {
+  id          String   @id
+  department  String
+  name        String
+  purpose     String
+  description String?
+  isCritical  Boolean  @default(false)
+  cacheable   Boolean  @default(false)
+  isSystem    Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+
+  @@index([department])
+}
+
+model AiExchangeRate {
+  id             String   @id @default("USD-BRL")
+  baseCurrency   String   @default("USD")
+  targetCurrency String   @default("BRL")
+  rate           Float
+  rateDate       String
+  source         String
+  updatedAt      DateTime @updatedAt
+}
+
+model AiLimitException {
+  id              String   @id @default(cuid())
+  organizationId  String
+  scope           String
+  targetKey       String
+  extraBudgetUsd  Float
+  grantedByUserId String
+  reason          String
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([organizationId, scope, targetKey])
+}
+
+model AiAccountingAlert {
+  id             String   @id @default(cuid())
+  organizationId String
+  requestId      String
+  message        String
+  resolved       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, resolved])
+}
+
+model AiUsageAggregation {
+  id             String   @id @default(cuid())
+  organizationId String
+  dateKey        String
+  department     String
+  action         String
+  providerId     String
+  modelId        String
+  requestsCount  Int      @default(0)
+  inputTokens    Int      @default(0)
+  outputTokens   Int      @default(0)
+  totalCostUsd   Float    @default(0)
+  totalCostBrl   Float    @default(0)
+  updatedAt      DateTime @updatedAt
+
+  @@unique([organizationId, dateKey, department, action, providerId, modelId])
+}
+
+model AiUsageLog {
+  id                      String    @id @default(cuid())
+  requestId               String    @unique
+  idempotencyKey          String?   @unique
+  traceId                 String
+  organizationId          String
+  userId                  String
+  clientId                String?
+  billingCategory         String    @default("internal_agency")
+  department              String
+  action                  String    @default("general.assistant")
+  purpose                 String
+  providerId              String
+  modelId                 String
+  effectiveProvider       String?
+  fallbackUsed            Boolean   @default(false)
+  fallbackFrom            String?
+  operation               String
+  inputTokens             Int       @default(0)
+  outputTokens            Int       @default(0)
+  cachedTokens            Int       @default(0)
+  rawInputTokens          Int?
+  rawOutputTokens         Int?
+  rawTotalTokens          Int?
+  cachedInputTokens       Int?
+  reasoningTokens         Int?
+  usageStatus             String    @default("confirmed")
+  inputCost               Float?
+  outputCost              Float?
+  cacheCost               Float?
+  reasoningCost           Float?
+  estimatedCostUsd        Float?
+  providerReportedCostUsd Float?
+  costStatus              String    @default("unavailable")
+  costReliable            Boolean   @default(false)
+  currency                String    @default("USD")
+  exchangeRate            Float?
+  exchangeRateDate        String?
+  exchangeRateSource      String?
+  totalCostBRL            Float?
+  isCritical              Boolean   @default(false)
+  responseCached          Boolean   @default(false)
+  reconciledWithProvider  Boolean   @default(false)
+  reconciledAt            DateTime?
+  startedAt               DateTime?
+  completedAt             DateTime?
+  latencyMs               Int       @default(0)
+  status                  String
+  errorMessage            String?
+  createdAt               DateTime  @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([department, action, status])
+  @@index([providerId, modelId])
+  @@index([clientId, billingCategory])
+}
+
+

@@ -1,0 +1,295 @@
+import crypto from 'node:crypto';
+import type { Request, Response, NextFunction } from 'express';
+import { PersistentStore, hashToken, verifyPassword } from '../store.ts';
+import { ROLE_PERMISSIONS, RoleName, User } from '../types.ts';
+
+export interface AuthContext {
+  user: Omit<User, 'passwordHash'>;
+  organizationId: string;
+  clientId: string | null;
+  permissions: string[];
+  sessionId: string;
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      auth?: AuthContext;
+      rawBody?: Buffer;
+    }
+  }
+}
+
+export const SESSION_COOKIE_NAME = 'ner_session';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+// Sliding-window failed login limiter
+const failedLoginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+export function resetLoginRateLimiter(): void {
+  failedLoginAttempts.clear();
+}
+
+function checkRateLimit(key: string): boolean {
+  const now = Date.now();
+  const entry = failedLoginAttempts.get(key);
+  if (!entry || entry.resetAt <= now) {
+    return true;
+  }
+  return entry.count < 8;
+}
+
+function recordFailedLogin(key: string): void {
+  const now = Date.now();
+  const entry = failedLoginAttempts.get(key);
+  if (!entry || entry.resetAt <= now) {
+    failedLoginAttempts.set(key, { count: 1, resetAt: now + 10 * 60 * 1000 });
+  } else {
+    entry.count += 1;
+  }
+}
+
+export function clearFailedLogin(key: string): void {
+  failedLoginAttempts.delete(key);
+}
+
+export function parseCookies(cookieHeader: string | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  if (!cookieHeader) return result;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1).trim();
+    if (k) {
+      try {
+        result[k] = decodeURIComponent(v);
+      } catch {
+        result[k] = v;
+      }
+    }
+  }
+  return result;
+}
+
+export function extractSessionToken(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7).trim();
+    if (token) return token;
+  }
+  const cookies = parseCookies(req.headers.cookie);
+  if (cookies[SESSION_COOKIE_NAME]) {
+    return cookies[SESSION_COOKIE_NAME];
+  }
+  return null;
+}
+
+export function sanitizeUser(user: User): Omit<User, 'passwordHash'> {
+  const { passwordHash: _removed, ...safe } = user;
+  return safe;
+}
+
+export function hasPermission(permissions: string[], required: string): boolean {
+  if (permissions.includes('*')) return true;
+  return permissions.includes(required);
+}
+
+export function createAuthMiddleware(store: PersistentStore) {
+  return function attachAuth(req: Request, _res: Response, next: NextFunction): void {
+    const token = extractSessionToken(req);
+    if (!token) {
+      next();
+      return;
+    }
+
+    const tokenHash = hashToken(token);
+    const state = store.getState();
+    const session = state.sessions.find((s) => s.tokenHash === tokenHash);
+    if (!session || session.revokedAt) {
+      next();
+      return;
+    }
+    if (new Date(session.expiresAt).getTime() <= Date.now()) {
+      next();
+      return;
+    }
+
+    const user = state.users.find((u) => u.id === session.userId);
+    if (!user || user.status !== 'Ativo') {
+      next();
+      return;
+    }
+
+    const permissions = ROLE_PERMISSIONS[user.role as RoleName] || [];
+    req.auth = {
+      user: sanitizeUser(user),
+      organizationId: user.organizationId,
+      clientId: user.clientId ?? null,
+      permissions,
+      sessionId: session.id,
+    };
+    next();
+  };
+}
+
+export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  if (!req.auth) {
+    res.status(401).json({ error: 'Autenticação obrigatória.' });
+    return;
+  }
+  next();
+}
+
+export function requirePermission(permission: string) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    if (!req.auth) {
+      res.status(401).json({ error: 'Autenticação obrigatória.' });
+      return;
+    }
+    if (!hasPermission(req.auth.permissions, permission)) {
+      res.status(403).json({ error: `Acesso negado. Permissão requerida: ${permission}` });
+      return;
+    }
+    next();
+  };
+}
+
+/**
+ * Resolves the active organizationId for the current request.
+ * - Super Admin may query/target another organization via `requestedOrgId`.
+ * - Non-Super Admin users are strictly locked to their own `req.auth.organizationId`.
+ *   If they explicitly request a different `organizationId`, returns `null` so the route responds 403.
+ */
+export function resolveScopedOrg(
+  req: Request,
+  requestedOrgId?: string | null
+): { allowed: boolean; organizationId: string } {
+  if (!req.auth) {
+    return { allowed: false, organizationId: '' };
+  }
+  const userOrg = req.auth.organizationId;
+  const isSuperAdmin = req.auth.user.role === 'Super Admin';
+  const cleanRequested = requestedOrgId && requestedOrgId.trim() ? requestedOrgId.trim() : null;
+
+  if (!cleanRequested) {
+    return { allowed: true, organizationId: userOrg };
+  }
+  if (cleanRequested === userOrg) {
+    return { allowed: true, organizationId: userOrg };
+  }
+  if (isSuperAdmin) {
+    return { allowed: true, organizationId: cleanRequested };
+  }
+  return { allowed: false, organizationId: userOrg };
+}
+
+export function canAccessResourceOrg(req: Request, resourceOrgId: string): boolean {
+  if (!req.auth) return false;
+  if (req.auth.user.role === 'Super Admin') return true;
+  return req.auth.organizationId === resourceOrgId;
+}
+
+export function canAccessClientResource(req: Request, resourceOrgId: string, resourceClientId?: string | null): boolean {
+  if (!canAccessResourceOrg(req, resourceOrgId)) return false;
+  if (!req.auth) return false;
+  if (req.auth.user.role === 'Cliente') {
+    return Boolean(req.auth.clientId && resourceClientId && req.auth.clientId === resourceClientId);
+  }
+  return true;
+}
+
+export function issueSession(store: PersistentStore, user: User): { token: string; expiresAt: string } {
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = hashToken(token);
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + SESSION_TTL_MS).toISOString();
+  const state = store.getState();
+
+  state.sessions.push({
+    id: `ses-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+    userId: user.id,
+    organizationId: user.organizationId,
+    tokenHash,
+    expiresAt,
+    revokedAt: null,
+    createdAt: now.toISOString(),
+  });
+
+  // Prune old expired/revoked sessions to keep store clean
+  if (state.sessions.length > 200) {
+    state.sessions = state.sessions.slice(-150);
+  }
+  store.save();
+  return { token, expiresAt };
+}
+
+export function handleLogin(store: PersistentStore, req: Request, res: Response): void {
+  const { email, password } = req.body || {};
+  if (typeof email !== 'string' || typeof password !== 'string' || !email.trim() || !password) {
+    res.status(400).json({ error: 'E-mail e senha são obrigatórios.' });
+    return;
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const rateKey = `${req.ip || 'local'}:${normalizedEmail}`;
+  if (!checkRateLimit(rateKey)) {
+    res.status(429).json({ error: 'Muitas tentativas de login. Aguarde alguns minutos.' });
+    return;
+  }
+
+  const state = store.getState();
+  const user = state.users.find((u) => u.email.toLowerCase() === normalizedEmail);
+  if (!user || !verifyPassword(password, user.passwordHash)) {
+    recordFailedLogin(rateKey);
+    res.status(401).json({ error: 'Credenciais inválidas.' });
+    return;
+  }
+
+  if (user.status !== 'Ativo') {
+    res.status(403).json({ error: 'Usuário inativo. Contate o administrador.' });
+    return;
+  }
+
+  const org = state.organizations.find((o) => o.id === user.organizationId);
+  if (org && org.status === 'Suspenso' && user.role !== 'Super Admin') {
+    res.status(403).json({ error: 'Organização suspensa. Contate o suporte.' });
+    return;
+  }
+
+  clearFailedLogin(rateKey);
+  const { token, expiresAt } = issueSession(store, user);
+  store.audit(user.organizationId, user.id, 'AUTH_LOGIN_SUCCESS', 'Session', user.id, {
+    role: user.role,
+  });
+
+  res.cookie(SESSION_COOKIE_NAME, token, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: SESSION_TTL_MS,
+  });
+
+  res.json({
+    success: true,
+    token,
+    expiresAt,
+    user: sanitizeUser(user),
+    permissions: ROLE_PERMISSIONS[user.role as RoleName] || [],
+  });
+}
+
+export function handleLogout(store: PersistentStore, req: Request, res: Response): void {
+  const token = extractSessionToken(req);
+  if (token) {
+    const tokenHash = hashToken(token);
+    const session = store.getState().sessions.find((s) => s.tokenHash === tokenHash);
+    if (session && !session.revokedAt) {
+      session.revokedAt = new Date().toISOString();
+      store.audit(session.organizationId, session.userId, 'AUTH_LOGOUT', 'Session', session.id, {});
+    }
+  }
+  res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+  res.json({ success: true });
+}
