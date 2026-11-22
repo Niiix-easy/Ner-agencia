@@ -1186,8 +1186,93 @@ export function createApp(
     const pendingReceivables = orgReceivables.reduce((sum, r) => sum + Math.max(0, r.amount - r.paidAmount), 0);
     const mediaBudgetSeparated = orgReceivables.reduce((sum, r) => sum + (r.mediaBudget || 0), 0);
     const totalPayable = orgPayables.reduce((sum, p) => sum + p.amount, 0);
+    const paidPayables = orgPayables
+      .filter((p) => p.status === 'Pago')
+      .reduce((sum, p) => sum + p.amount, 0);
+    const pendingPayables = Math.max(0, totalPayable - paidPayables);
     const netOperatingResult = agencyRevenue - totalPayable;
     const operatingMarginPct = agencyRevenue > 0 ? ((netOperatingResult / agencyRevenue) * 100).toFixed(1) : '0.0';
+
+    // Aggregate real monthly P&L and Receivables vs Payables series by YYYY-MM
+    const monthlyMap = new Map<
+      string,
+      {
+        month: string;
+        receivables: number;
+        received: number;
+        pendingReceivables: number;
+        payables: number;
+        paidPayables: number;
+        pendingPayables: number;
+        mediaBudget: number;
+      }
+    >();
+
+    const extractMonthKey = (dateStr?: string | null): string => {
+      if (typeof dateStr === 'string' && /^\d{4}-\d{2}/.test(dateStr.trim())) {
+        return dateStr.trim().slice(0, 7);
+      }
+      return new Date().toISOString().slice(0, 7);
+    };
+
+    const ensureBucket = (month: string) => {
+      let bucket = monthlyMap.get(month);
+      if (!bucket) {
+        bucket = {
+          month,
+          receivables: 0,
+          received: 0,
+          pendingReceivables: 0,
+          payables: 0,
+          paidPayables: 0,
+          pendingPayables: 0,
+          mediaBudget: 0,
+        };
+        monthlyMap.set(month, bucket);
+      }
+      return bucket;
+    };
+
+    for (const r of orgReceivables) {
+      const b = ensureBucket(extractMonthKey(r.dueDate || r.paidAt));
+      b.receivables += Number(r.amount || 0);
+      b.received += Number(r.paidAmount || 0);
+      b.pendingReceivables += Math.max(0, Number(r.amount || 0) - Number(r.paidAmount || 0));
+      b.mediaBudget += Number(r.mediaBudget || 0);
+    }
+
+    for (const p of orgPayables) {
+      const b = ensureBucket(extractMonthKey(p.dueDate));
+      const amt = Number(p.amount || 0);
+      b.payables += amt;
+      if (p.status === 'Pago') {
+        b.paidPayables += amt;
+      } else {
+        b.pendingPayables += amt;
+      }
+    }
+
+    const monthlySeries = Array.from(monthlyMap.values())
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map((item) => {
+        const netResult = Number((item.receivables - item.payables).toFixed(2));
+        const cashNetResult = Number((item.received - item.paidPayables).toFixed(2));
+        const marginPct =
+          item.receivables > 0 ? Number(((netResult / item.receivables) * 100).toFixed(1)) : 0;
+        return {
+          ...item,
+          receivables: Number(item.receivables.toFixed(2)),
+          received: Number(item.received.toFixed(2)),
+          pendingReceivables: Number(item.pendingReceivables.toFixed(2)),
+          payables: Number(item.payables.toFixed(2)),
+          paidPayables: Number(item.paidPayables.toFixed(2)),
+          pendingPayables: Number(item.pendingPayables.toFixed(2)),
+          mediaBudget: Number(item.mediaBudget.toFixed(2)),
+          netResult,
+          cashNetResult,
+          marginPct,
+        };
+      });
 
     res.json({
       scope: 'organization',
@@ -1196,8 +1281,11 @@ export function createApp(
       pendingReceivables,
       mediaBudgetSeparated,
       totalPayable,
+      paidPayables,
+      pendingPayables,
       netOperatingResult,
       operatingMargin: `${operatingMarginPct}%`,
+      monthlySeries,
       separationRule: 'Verba de Mídia (Ads) contabilizada exclusivamente em conta separada do cliente.',
     });
   });

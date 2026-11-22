@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch, formatCurrencyBRL } from '../lib/api';
+import { FinanceCharts } from './FinanceCharts';
 
 export function CrmLeadsView({ leads, activeOrgId, onRefresh, onNotify }: any) {
   const [showModal, setShowModal] = useState(false);
@@ -979,15 +980,15 @@ export function FinanceView({ financeSummary, receivables, payables, commissions
             <span>Receita Agência (Honorários)</span>
             <DollarSign className="w-4 h-4 text-cyan-400" />
           </div>
-          <div className="text-2xl font-bold text-white">{formatCurrencyBRL(financeSummary?.agencyRevenue)}</div>
-          <div className="text-xs text-emerald-400 mt-1">Recebido: {formatCurrencyBRL(financeSummary?.receivedRevenue)}</div>
+          <div className="text-2xl font-bold font-mono tabular-nums text-white">{formatCurrencyBRL(financeSummary?.agencyRevenue)}</div>
+          <div className="text-xs font-mono tabular-nums text-emerald-400 mt-1">Recebido: {formatCurrencyBRL(financeSummary?.receivedRevenue)}</div>
         </div>
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
           <div className="flex justify-between text-xs text-slate-400 mb-2">
             <span>Verba de Mídia (Separada)</span>
             <TrendingUp className="w-4 h-4 text-blue-400" />
           </div>
-          <div className="text-2xl font-bold text-blue-300">{formatCurrencyBRL(financeSummary?.mediaBudgetSeparated)}</div>
+          <div className="text-2xl font-bold font-mono tabular-nums text-blue-300">{formatCurrencyBRL(financeSummary?.mediaBudgetSeparated)}</div>
           <div className="text-xs text-slate-400 mt-1">Excluída do faturamento próprio</div>
         </div>
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
@@ -995,7 +996,7 @@ export function FinanceView({ financeSummary, receivables, payables, commissions
             <span>Contas a Pagar</span>
             <CreditCard className="w-4 h-4 text-rose-400" />
           </div>
-          <div className="text-2xl font-bold text-white">{formatCurrencyBRL(financeSummary?.totalPayable)}</div>
+          <div className="text-2xl font-bold font-mono tabular-nums text-white">{formatCurrencyBRL(financeSummary?.totalPayable)}</div>
           <div className="text-xs text-rose-400 mt-1">Custos operacionais</div>
         </div>
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5">
@@ -1003,10 +1004,16 @@ export function FinanceView({ financeSummary, receivables, payables, commissions
             <span>Resultado Operacional (P&L)</span>
             <PieChart className="w-4 h-4 text-emerald-400" />
           </div>
-          <div className="text-2xl font-bold text-emerald-400">{formatCurrencyBRL(financeSummary?.netOperatingResult)}</div>
-          <div className="text-xs text-emerald-300 mt-1">Margem: {financeSummary?.operatingMargin || '0.0%'}</div>
+          <div className="text-2xl font-bold font-mono tabular-nums text-emerald-400">{formatCurrencyBRL(financeSummary?.netOperatingResult)}</div>
+          <div className="text-xs font-mono tabular-nums text-emerald-300 mt-1">Margem: {financeSummary?.operatingMargin || '0.0%'}</div>
         </div>
       </div>
+
+      <FinanceCharts
+        financeSummary={financeSummary}
+        receivables={receivables}
+        payables={payables}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4">
