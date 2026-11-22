@@ -5,12 +5,14 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { PersistentStore } from './server/store.ts';
 import { createApp } from './server/app.ts';
+import { registerDatabaseShutdownHooks } from './server/db/prisma.ts';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function startServer() {
+  registerDatabaseShutdownHooks();
   const store = new PersistentStore();
   const { app } = createApp(store);
 

@@ -13,6 +13,8 @@ import {
   Save,
   ShieldAlert,
   ShieldCheck,
+  Database,
+  Trash2,
 } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { AiThresholdAlertsManager } from './AiThresholdAlertsManager';
@@ -187,8 +189,13 @@ export function AiSettingsLimitsPanel({
   onRefresh,
   onNotify,
 }: AiSettingsLimitsPanelProps) {
-  const [activeSection, setActiveSection] = useState<'limits' | 'monitoring' | 'alerts' | 'models'>('limits');
+  const [activeSection, setActiveSection] = useState<'limits' | 'monitoring' | 'alerts' | 'models' | 'memory'>('limits');
   const [selectedOrgId, setSelectedOrgId] = useState<string>(activeOrgId);
+  const [memoryItems, setMemoryItems] = useState<any[]>([]);
+  const [retentionDays, setRetentionDays] = useState(30);
+  const [embeddingInput, setEmbeddingInput] = useState('Resumo executivo de campanha de aquisição B2B');
+  const [embeddingResult, setEmbeddingResult] = useState<any>(null);
+  const [testingEmbedding, setTestingEmbedding] = useState(false);
   const [orgs, setOrgs] = useState<{ id: string; name: string }[]>([]);
   const [models, setModels] = useState<any[]>([]);
   const [modelSearch, setModelSearch] = useState('');
@@ -454,6 +461,72 @@ export function AiSettingsLimitsPanel({
     }
   };
 
+  const loadMemoryData = useCallback(async () => {
+    try {
+      const targetOrg = selectedOrgId || activeOrgId;
+      const list = await apiFetch<any[]>(`/api/ai/memory?organizationId=${encodeURIComponent(targetOrg)}`);
+      setMemoryItems(Array.isArray(list) ? list : []);
+    } catch {
+      setMemoryItems([]);
+    }
+  }, [selectedOrgId, activeOrgId]);
+
+  useEffect(() => {
+    if (activeSection === 'memory') {
+      loadMemoryData();
+    }
+  }, [activeSection, loadMemoryData]);
+
+  const handleClearConversation = async (conversationId: string) => {
+    try {
+      const targetOrg = selectedOrgId || activeOrgId;
+      await apiFetch(
+        `/api/ai/memory/${encodeURIComponent(conversationId)}?organizationId=${encodeURIComponent(targetOrg)}`,
+        { method: 'DELETE' }
+      );
+      onNotify(`Memória da conversa "${conversationId}" removida com auditoria.`);
+      loadMemoryData();
+    } catch (err: any) {
+      onNotify(err?.message || 'Erro ao limpar memória.', true);
+    }
+  };
+
+  const handlePruneMemory = async () => {
+    try {
+      const targetOrg = selectedOrgId || activeOrgId;
+      const res = await apiFetch<any>('/api/ai/memory/prune', {
+        method: 'POST',
+        body: JSON.stringify({ organizationId: targetOrg, retentionDays: Number(retentionDays) }),
+      });
+      onNotify(`Retenção aplicada (${retentionDays} dias): ${res.removed} registro(s) expirados removidos.`);
+      loadMemoryData();
+    } catch (err: any) {
+      onNotify(err?.message || 'Erro ao aplicar retenção de memória.', true);
+    }
+  };
+
+  const handleTestEmbedding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTestingEmbedding(true);
+    setEmbeddingResult(null);
+    try {
+      const res = await apiFetch<any>('/api/ai/embeddings', {
+        method: 'POST',
+        body: JSON.stringify({
+          organizationId: selectedOrgId || activeOrgId,
+          department: 'NER Intelligence',
+          input: embeddingInput,
+        }),
+      });
+      setEmbeddingResult(res);
+      onNotify(`Embedding gerado (${res.dimensions || res.vectors?.[0]?.length || 0} dimensões).`);
+    } catch (err: any) {
+      onNotify(err?.message || 'Falha ao gerar embeddings (verifique credenciais do provedor).', true);
+    } finally {
+      setTestingEmbedding(false);
+    }
+  };
+
   const deptStatus: any[] = snapshot?.departmentStatus || [];
   const deptStatusMap = useMemo(() => {
     const map: Record<string, { spentTodayUsd: number; limitUsd: number; pct: number }> = {};
@@ -600,6 +673,7 @@ export function AiSettingsLimitsPanel({
             },
             { id: 'alerts', label: 'Alertas (50% · 75% · 90% · 100%)', icon: Bell },
             { id: 'models', label: `Limites por Modelo (${models.length})`, icon: Cpu },
+            { id: 'memory', label: 'Memória & Embeddings', icon: Database },
           ] as const
         ).map((tab) => {
           const Icon = tab.icon;
@@ -1386,6 +1460,113 @@ export function AiSettingsLimitsPanel({
           </table>
         </div>
       </form>
+      )}
+
+      {/* SEÇÃO: GESTÃO DE MEMÓRIA DE CONVERSAÇÃO, RETENÇÃO & EMBEDDINGS (FASE 3G) */}
+      {activeSection === 'memory' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="font-bold text-white text-xs flex items-center gap-1.5">
+                  <Database className="w-4 h-4 text-cyan-400" /> Memória de Conversação & Retenção ({memoryItems.length})
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Inspecione conversas persistidas por organização e aplique limpeza controlada ou política de retenção.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadMemoryData}
+                className="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-slate-300 text-[11px]"
+              >
+                Atualizar
+              </button>
+            </div>
+
+            {canManage && (
+              <div className="flex flex-wrap items-center gap-2 bg-slate-900/70 border border-slate-800 rounded-lg p-2.5">
+                <span className="text-[11px] text-slate-300">Remover conversas com mais de</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={retentionDays}
+                  onChange={(e) => setRetentionDays(Number(e.target.value))}
+                  className="w-16 bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white font-mono text-xs"
+                />
+                <span className="text-[11px] text-slate-400">dias</span>
+                <button
+                  type="button"
+                  onClick={handlePruneMemory}
+                  className="ml-auto px-3 py-1 rounded bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-[11px] font-semibold"
+                >
+                  Aplicar Retenção
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {memoryItems.length === 0 && (
+                <div className="p-4 rounded-lg border border-dashed border-slate-800 text-center text-slate-500 text-[11px]">
+                  Nenhuma memória de conversação ativa nesta organização.
+                </div>
+              )}
+              {memoryItems.map((m) => (
+                <div key={m.conversationId} className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-mono text-white text-[11px] truncate">{m.conversationId}</div>
+                    <div className="text-[10px] text-slate-400">
+                      {m.department} • {m.messagesCount} mensagens • Atualizado: {String(m.updatedAt || '').slice(0, 16)}
+                    </div>
+                  </div>
+                  {canManage && (
+                    <button
+                      type="button"
+                      onClick={() => handleClearConversation(m.conversationId)}
+                      className="px-2 py-1 rounded bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 text-[11px] flex items-center gap-1 shrink-0"
+                    >
+                      <Trash2 className="w-3 h-3" /> Limpar
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <form onSubmit={handleTestEmbedding} className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div>
+              <h4 className="font-bold text-white text-xs flex items-center gap-1.5">
+                <Layers className="w-4 h-4 text-violet-400" /> Configuração & Validação de Embeddings
+              </h4>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Valida o roteamento de embeddings via <code className="text-cyan-400">POST /api/ai/embeddings</code> usando o provedor configurado.
+              </p>
+            </div>
+            <textarea
+              rows={3}
+              required
+              value={embeddingInput}
+              onChange={(e) => setEmbeddingInput(e.target.value)}
+              className="w-full bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-white"
+              placeholder="Texto para vetorização..."
+            />
+            <button
+              type="submit"
+              disabled={testingEmbedding}
+              className="px-3.5 py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white font-semibold text-xs"
+            >
+              {testingEmbedding ? 'Gerando Embedding...' : 'Testar Geração de Embedding'}
+            </button>
+            {embeddingResult && (
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-200 space-y-1 font-mono">
+                <div>Provedor/Modelo: {embeddingResult.providerId}/{embeddingResult.modelId}</div>
+                <div>Dimensões: {embeddingResult.dimensions || embeddingResult.vectors?.[0]?.length || 0}</div>
+                <div>Latência: {embeddingResult.latencyMs}ms • Custo: ${Number(embeddingResult.costUsd || 0).toFixed(6)}</div>
+              </div>
+            )}
+          </form>
+        </div>
       )}
     </div>
   );

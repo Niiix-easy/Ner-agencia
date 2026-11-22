@@ -24,11 +24,23 @@ import {
   getOrganizationEntitlements,
   processPaymentWebhook,
 } from './services/billing-stripe.ts';
+import {
+  assertEntitlement,
+  classifyWebPageQuotaResource,
+  evaluateOrganizationEntitlements,
+  withOrgQuotaLock,
+} from './services/entitlements.ts';
 import { ROLE_PERMISSIONS, RoleName } from './types.ts';
 import { AiGatewayService } from './ai/gateway.ts';
 import { createAiGatewayRouter } from './ai/router.ts';
 import { AiProviderAdapter } from './ai/providers.ts';
 import { AiProviderId } from './ai/types.ts';
+import { createProductionModulesRouter } from './routes/production-modules.ts';
+import type { PrismaClient } from '@prisma/client';
+import { applyListQuery, parseListQuery } from './services/query-utils.ts';
+import { getAdPlatformReadiness, mapAdAccountPlatformToProvider } from './services/ad-credentials.ts';
+import { checkDatabaseHealth, getActivePersistenceMode, isPostgresConfigured } from './db/prisma.ts';
+import { createRepositories, type NerRepositories } from './repositories/index.ts';
 
 function uid(prefix: string): string {
   return `${prefix}-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
@@ -39,6 +51,7 @@ export interface CreateAppOptions {
   aiAdapters?: Record<AiProviderId, AiProviderAdapter>;
   aiMasterKeyOverride?: string;
   googleTokenVerifier?: GoogleTokenVerifier;
+  prisma?: PrismaClient | null;
 }
 
 const VALID_ROLES = new Set<RoleName>([
@@ -51,19 +64,56 @@ const VALID_ROLES = new Set<RoleName>([
   'Cliente',
 ]);
 
+const SAAS_BILLING_ADMIN_ROLES = new Set<RoleName>(['Super Admin', 'Administrador']);
+
 const VALID_CLIENT_STATUS = new Set(['Ativo', 'Em Onboarding', 'Inativo']);
 const VALID_CLIENT_HEALTH = new Set(['Excelente', 'Bom', 'Atenção', 'Novo']);
-const VALID_TASK_STATUS = new Set(['A fazer', 'Em andamento', 'Em revisão', 'Concluída']);
+const VALID_TASK_STATUS = new Set(['Backlog', 'A fazer', 'Em andamento', 'Em revisão', 'Concluída']);
 const VALID_TASK_PRIORITY = new Set(['Baixa', 'Normal', 'Alta', 'Crítica']);
 const VALID_WEB_STATUS = new Set(['Rascunho', 'Em revisão', 'Aprovado', 'Publicado']);
 const VALID_TICKET_STATUS = new Set(['Aberto', 'Em atendimento', 'Resolvido']);
 const VALID_TICKET_PRIORITY = new Set(['Baixa', 'Normal', 'Alta']);
 
+function resolveClientIsolation(
+  req: Request,
+  res: Response
+): { isClient: boolean; clientId: string | null } | null {
+  if (!req.auth) {
+    res.status(401).json({ error: 'Autenticação obrigatória.' });
+    return null;
+  }
+  if (req.auth.user.role !== 'Cliente') {
+    return { isClient: false, clientId: null };
+  }
+  const boundClientId = req.auth.clientId;
+  if (!boundClientId) {
+    req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'ClientIsolation', {
+      reason: 'orphan_client_account',
+    });
+    res.status(403).json({ error: 'Usuário Cliente sem vínculo válido de cliente.' });
+    return null;
+  }
+  const requestedClientId =
+    (typeof req.query.clientId === 'string' && req.query.clientId.trim()) ||
+    (typeof req.body?.clientId === 'string' && req.body.clientId.trim()) ||
+    null;
+  if (requestedClientId && requestedClientId !== boundClientId) {
+    req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'ClientIsolation', {
+      reason: 'cross_client_id_manipulation',
+      requestedClientId,
+    });
+    res.status(403).json({ error: 'Acesso negado a dados financeiros ou operacionais de outro cliente.' });
+    return null;
+  }
+  return { isClient: true, clientId: boundClientId };
+}
+
 export function createApp(
   store: PersistentStore,
   options: CreateAppOptions = {}
-): { app: Express; store: PersistentStore; aiGateway: AiGatewayService } {
+): { app: Express; store: PersistentStore; aiGateway: AiGatewayService; repositories: NerRepositories } {
   const app = express();
+  const repositories = createRepositories({ store, prisma: options.prisma });
   const stripeAdapter = new StripePaymentAdapter();
   const getWebhookSecret = (): string | null => {
     if (options.stripeWebhookSecret) return options.stripeWebhookSecret;
@@ -72,19 +122,48 @@ export function createApp(
     return 'whsec_ner_local_dev_sandbox';
   };
 
-  // Security headers baseline
-  app.use((_req: Request, res: Response, next: NextFunction) => {
+  // Security headers baseline & strict allowlisted CORS (never wildcard '*' on authenticated APIs)
+  const allowedOrigins = new Set(
+    [
+      process.env.APP_URL,
+      ...(process.env.ALLOWED_ORIGINS || '').split(','),
+    ]
+      .map((s) => (s || '').trim().replace(/\/+$/, ''))
+      .filter(Boolean)
+  );
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+
+    const origin = req.headers.origin;
+    if (origin) {
+      const normalizedOrigin = origin.trim().replace(/\/+$/, '');
+      const requestHost = req.headers['x-forwarded-host'] || req.headers.host;
+      const isSameHost =
+        Boolean(requestHost) &&
+        (normalizedOrigin === `https://${requestHost}` || normalizedOrigin === `http://${requestHost}`);
+      if (isSameHost || allowedOrigins.has(normalizedOrigin)) {
+        res.setHeader('Access-Control-Allow-Origin', normalizedOrigin);
+        res.setHeader('Vary', 'Origin');
+        res.setHeader('Access-Control-Allow-Credentials', 'true');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      }
+      if (req.method === 'OPTIONS') {
+        res.status(204).end();
+        return;
+      }
+    }
     next();
   });
 
   // Capture rawBody buffer for Stripe HMAC signature verification
   app.use(
     express.json({
-      limit: '2mb',
+      limit: '15mb',
       verify: (req, _res, buf) => {
         (req as Request).rawBody = buf;
       },
@@ -95,14 +174,23 @@ export function createApp(
   app.use(createAuthMiddleware(store));
 
   // --- HEALTH ---
-  app.get('/api/health', (_req: Request, res: Response) => {
-    const persistenceMode = process.env.DATABASE_URL ? 'PostgreSQL / Prisma configured' : 'Local Atomic JSON Store (database/data/ner-db.json)';
+  app.get('/api/health', async (_req: Request, res: Response) => {
+    const dbHealth = await checkDatabaseHealth(options.prisma || undefined);
+    const persistenceMode = isPostgresConfigured()
+      ? 'PostgreSQL / Prisma configured'
+      : 'Local Atomic JSON Store (database/data/ner-db.json)';
     res.json({
       status: 'online',
       system: 'NER AGENCY OS',
       version: '16.0.0-reviewed',
       timestamp: new Date().toISOString(),
       database: persistenceMode,
+      persistence: {
+        mode: getActivePersistenceMode(),
+        postgresConfigured: dbHealth.configured,
+        connected: dbHealth.connected,
+        latencyMs: dbHealth.latencyMs,
+      },
       integrations: {
         gemini: Boolean(process.env.GEMINI_API_KEY),
         stripeLive: Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET),
@@ -150,19 +238,6 @@ export function createApp(
 
   app.post('/api/auth/logout', (req: Request, res: Response) => {
     handleLogout(store, req, res);
-  });
-
-  app.post('/api/auth/forgot-password', (req: Request, res: Response) => {
-    const { email } = req.body || {};
-    if (typeof email !== 'string' || !email.trim()) {
-      res.status(400).json({ error: 'Informe um e-mail válido.' });
-      return;
-    }
-    // Always generic response to avoid user enumeration
-    res.json({
-      success: true,
-      message: 'Se o e-mail estiver cadastrado e ativo, as instruções de redefinição foram registradas.',
-    });
   });
 
   app.get('/api/auth/me', requireAuth, (req: Request, res: Response) => {
@@ -247,9 +322,12 @@ export function createApp(
     res.json(users);
   });
 
-  app.post('/api/users', requirePermission('users.create'), (req: Request, res: Response) => {
+  app.post('/api/users', requirePermission('users.create'), async (req: Request, res: Response) => {
     const scope = resolveScopedOrg(req, req.body?.organizationId);
     if (!scope.allowed) {
+      req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'User', {
+        reason: 'cross_tenant_user_create',
+      });
       res.status(403).json({ error: 'Não é permitido criar usuário em outra organização.' });
       return;
     }
@@ -263,6 +341,9 @@ export function createApp(
       return;
     }
     if (role === 'Super Admin' && req.auth!.user.role !== 'Super Admin') {
+      req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'User', {
+        reason: 'privilege_escalation_super_admin',
+      });
       res.status(403).json({ error: 'Apenas Super Admin pode criar outro Super Admin.' });
       return;
     }
@@ -270,52 +351,84 @@ export function createApp(
       res.status(400).json({ error: 'Senha deve ter no mínimo 6 caracteres.' });
       return;
     }
-    const state = store.getState();
+
     const normEmail = String(email).trim().toLowerCase();
-    if (state.users.some((u) => u.email.toLowerCase() === normEmail)) {
-      res.status(409).json({ error: 'E-mail já cadastrado.' });
-      return;
-    }
-    let resolvedClientId: string | null = null;
-    if (role === 'Cliente') {
-      if (!clientId) {
-        res.status(400).json({ error: 'Usuários com perfil Cliente devem estar vinculados a um clientId.' });
-        return;
+    const passwordHash = hashPassword(String(password));
+
+    const outcome = await withOrgQuotaLock(scope.organizationId, () => {
+      const state = store.getState();
+      if (state.users.some((u) => u.email.toLowerCase() === normEmail)) {
+        return { status: 409 as const, body: { error: 'E-mail já cadastrado.' } };
       }
-      const cli = state.clients.find((c) => c.id === clientId && c.organizationId === scope.organizationId);
-      if (!cli) {
-        res.status(404).json({ error: 'Cliente informado não pertence à organização ativa.' });
-        return;
+      let resolvedClientId: string | null = null;
+      if (role === 'Cliente') {
+        if (!clientId) {
+          return {
+            status: 400 as const,
+            body: { error: 'Usuários com perfil Cliente devem estar vinculados a um clientId.' },
+          };
+        }
+        const cli = state.clients.find((c) => c.id === clientId && c.organizationId === scope.organizationId);
+        if (!cli) {
+          return {
+            status: 404 as const,
+            body: { error: 'Cliente informado não pertence à organização ativa.' },
+          };
+        }
+        resolvedClientId = cli.id;
       }
-      resolvedClientId = cli.id;
-    }
-    const newUser = {
-      id: uid('usr'),
-      organizationId: scope.organizationId,
-      clientId: resolvedClientId,
-      name: String(name).trim(),
-      email: normEmail,
-      passwordHash: hashPassword(String(password)),
-      role: role as RoleName,
-      status: 'Ativo' as const,
-      emailVerifiedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-    };
-    state.users.push(newUser);
-    store.audit(scope.organizationId, req.auth!.user.id, 'USER_CREATED', 'User', newUser.id, {
-      email: newUser.email,
-      role: newUser.role,
+
+      const entitlementCheck = assertEntitlement(store, {
+        organizationId: scope.organizationId,
+        resource: 'users',
+        increment: 1,
+        actorUserId: req.auth!.user.id,
+        actionContext: 'POST /api/users',
+      });
+      if (!entitlementCheck.allowed) {
+        return {
+          status: entitlementCheck.httpStatus,
+          body: {
+            error: entitlementCheck.error,
+            code: entitlementCheck.code,
+            entitlements: entitlementCheck.entitlements,
+          },
+        };
+      }
+
+      const createdUser = store.runTransaction((txState) => {
+        const newUser = {
+          id: uid('usr'),
+          organizationId: scope.organizationId,
+          clientId: resolvedClientId,
+          name: String(name).trim(),
+          email: normEmail,
+          passwordHash,
+          role: role as RoleName,
+          status: 'Ativo' as const,
+          emailVerifiedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+        };
+        txState.users.push(newUser);
+        return newUser;
+      });
+      store.audit(scope.organizationId, req.auth!.user.id, 'USER_CREATED', 'User', createdUser.id, {
+        email: createdUser.email,
+        role: createdUser.role,
+      });
+      return { status: 201 as const, body: sanitizeUser(createdUser) };
     });
-    res.status(201).json(sanitizeUser(newUser));
+
+    res.status(outcome.status).json(outcome.body);
   });
 
-  app.patch('/api/users/:id/status', requirePermission('users.update'), (req: Request, res: Response) => {
-    const user = store.getState().users.find((u) => u.id === req.params.id);
-    if (!user || !canAccessResourceOrg(req, user.organizationId)) {
+  app.patch('/api/users/:id/status', requirePermission('users.update'), async (req: Request, res: Response) => {
+    const existing = store.getState().users.find((u) => u.id === req.params.id);
+    if (!existing || !canAccessResourceOrg(req, existing.organizationId)) {
       res.status(404).json({ error: 'Usuário não encontrado no escopo.' });
       return;
     }
-    if (user.id === req.auth!.user.id) {
+    if (existing.id === req.auth!.user.id) {
       res.status(400).json({ error: 'Não é permitido desativar o próprio usuário ativo.' });
       return;
     }
@@ -324,9 +437,37 @@ export function createApp(
       res.status(400).json({ error: 'Status inválido.' });
       return;
     }
-    user.status = status;
-    store.audit(user.organizationId, req.auth!.user.id, 'USER_STATUS_UPDATED', 'User', user.id, { status });
-    res.json(sanitizeUser(user));
+
+    const outcome = await withOrgQuotaLock(existing.organizationId, () => {
+      const user = store.getState().users.find((u) => u.id === req.params.id);
+      if (!user) {
+        return { status: 404 as const, body: { error: 'Usuário não encontrado no escopo.' } };
+      }
+      if (status === 'Ativo' && user.status !== 'Ativo') {
+        const entitlementCheck = assertEntitlement(store, {
+          organizationId: user.organizationId,
+          resource: 'users',
+          increment: 1,
+          actorUserId: req.auth!.user.id,
+          actionContext: 'PATCH /api/users/:id/status (reactivate)',
+        });
+        if (!entitlementCheck.allowed) {
+          return {
+            status: entitlementCheck.httpStatus,
+            body: {
+              error: entitlementCheck.error,
+              code: entitlementCheck.code,
+              entitlements: entitlementCheck.entitlements,
+            },
+          };
+        }
+      }
+      user.status = status;
+      store.audit(user.organizationId, req.auth!.user.id, 'USER_STATUS_UPDATED', 'User', user.id, { status });
+      return { status: 200 as const, body: sanitizeUser(user) };
+    });
+
+    res.status(outcome.status).json(outcome.body);
   });
 
   app.get('/api/roles', requireAuth, (_req: Request, res: Response) => {
@@ -359,11 +500,13 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado a clientes de outra organização.' });
       return;
     }
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
     let list = store.getState().clients.filter((c) => c.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
-      list = list.filter((c) => c.id === req.auth!.clientId);
+    if (clientScope.isClient) {
+      list = list.filter((c) => c.id === clientScope.clientId);
     }
-    res.json(list);
+    res.json(applyListQuery(list, parseListQuery(req.query as Record<string, unknown>, ['name', 'legalName', 'email', 'segment', 'manager'])));
   });
 
   app.post('/api/clients', requirePermission('clients.create'), (req: Request, res: Response) => {
@@ -375,6 +518,21 @@ export function createApp(
     const { name, legalName, document, email, phone, website, segment, category, mrr } = req.body || {};
     if (!name || !email) {
       res.status(400).json({ error: 'Nome fantasia e e-mail do cliente são obrigatórios.' });
+      return;
+    }
+    const entitlementCheck = assertEntitlement(store, {
+      organizationId: scope.organizationId,
+      resource: 'feature',
+      increment: 0,
+      actorUserId: req.auth!.user.id,
+      actionContext: 'POST /api/clients',
+    });
+    if (!entitlementCheck.allowed) {
+      res.status(entitlementCheck.httpStatus).json({
+        error: entitlementCheck.error,
+        code: entitlementCheck.code,
+        entitlements: entitlementCheck.entitlements,
+      });
       return;
     }
     const client = {
@@ -557,6 +715,21 @@ export function createApp(
     const { name, email, phone, company, segment, source, estimatedValue, utmCampaign } = req.body || {};
     if (!name || !email || !company) {
       res.status(400).json({ error: 'Nome, e-mail e empresa são obrigatórios.' });
+      return;
+    }
+    const entitlementCheck = assertEntitlement(store, {
+      organizationId: scope.organizationId,
+      resource: 'feature',
+      increment: 0,
+      actorUserId: req.auth!.user.id,
+      actionContext: 'POST /api/leads',
+    });
+    if (!entitlementCheck.allowed) {
+      res.status(entitlementCheck.httpStatus).json({
+        error: entitlementCheck.error,
+        code: entitlementCheck.code,
+        entitlements: entitlementCheck.entitlements,
+      });
       return;
     }
     const state = store.getState();
@@ -825,7 +998,8 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado a propostas de outra organização.' });
       return;
     }
-    res.json(store.getState().proposals.filter((p) => p.organizationId === scope.organizationId));
+    const list = store.getState().proposals.filter((p) => p.organizationId === scope.organizationId);
+    res.json(applyListQuery(list, parseListQuery(req.query as Record<string, unknown>, ['title', 'number', 'planCode', 'responsible'])));
   });
 
   app.post('/api/proposals', requirePermission('proposals.manage'), (req: Request, res: Response) => {
@@ -834,7 +1008,7 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
-    const { clientId, title, setupValue, recurringValue, totalValue, validUntil, planCode } = req.body || {};
+    const { clientId, title, setupValue, recurringValue, discountValue, totalValue, conditions, validUntil, planCode } = req.body || {};
     if (!clientId || !title) {
       res.status(400).json({ error: 'Cliente e título da proposta são obrigatórios.' });
       return;
@@ -847,7 +1021,8 @@ export function createApp(
     }
     const setup = Math.max(0, Number(setupValue) || 0);
     const recurring = Math.max(0, Number(recurringValue) || 0);
-    const total = totalValue !== undefined ? Math.max(0, Number(totalValue)) : setup + recurring;
+    const discount = Math.max(0, Number(discountValue) || 0);
+    const total = totalValue !== undefined ? Math.max(0, Number(totalValue)) : Math.max(0, setup + recurring - discount);
     const prop = {
       id: uid('prop'),
       organizationId: scope.organizationId,
@@ -857,7 +1032,9 @@ export function createApp(
       title: String(title).trim(),
       setupValue: setup,
       recurringValue: recurring,
+      discountValue: discount,
       totalValue: total,
+      conditions: conditions ? String(conditions).trim() : undefined,
       status: 'Enviada' as const,
       validUntil: String(validUntil || new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10)),
       responsible: req.auth!.user.name,
@@ -866,7 +1043,7 @@ export function createApp(
       createdAt: new Date().toISOString(),
     };
     state.proposals.push(prop);
-    store.audit(scope.organizationId, req.auth!.user.id, 'PROPOSAL_CREATED', 'Proposal', prop.id, { number: prop.number });
+    store.audit(scope.organizationId, req.auth!.user.id, 'PROPOSAL_CREATED', 'Proposal', prop.id, { number: prop.number, planCode: prop.planCode });
     res.status(201).json(prop);
   });
 
@@ -940,29 +1117,68 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado a contratos de outra organização.' });
       return;
     }
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
     let list = store.getState().contracts.filter((c) => c.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
-      list = list.filter((c) => c.clientId === req.auth!.clientId);
+    if (clientScope.isClient) {
+      list = list.filter((c) => c.clientId === clientScope.clientId);
     }
     res.json(list);
   });
 
-  // --- FINANCE (STRICT AGENCY REVENUE VS CLIENT MEDIA BUDGET SEPARATION) ---
+  // --- FINANCE (STRICT AGENCY REVENUE VS CLIENT MEDIA BUDGET SEPARATION + CLIENT ISOLATION) ---
   app.get('/api/finance/summary', requirePermission('finance.read'), (req: Request, res: Response) => {
     const scope = resolveScopedOrg(req, req.query.organizationId as string | undefined);
     if (!scope.allowed) {
+      req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'FinanceSummary', {
+        reason: 'cross_tenant_finance_access',
+      });
       res.status(403).json({ error: 'Acesso negado ao financeiro de outra organização.' });
       return;
     }
-    const state = store.getState();
-    let orgReceivables = state.receivables.filter((r) => r.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
-      orgReceivables = orgReceivables.filter((r) => r.clientId === req.auth!.clientId);
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
+
+    const requestedScope = typeof req.query.scope === 'string' ? req.query.scope.trim().toLowerCase() : '';
+    if (clientScope.isClient && (requestedScope === 'organization' || requestedScope === 'global')) {
+      req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'FinanceSummary', {
+        reason: 'client_requested_global_finance',
+        requestedScope,
+      });
+      res.status(403).json({ error: 'Acesso negado ao financeiro global da organização.' });
+      return;
     }
-    const orgPayables =
-      req.auth!.user.role === 'Cliente'
-        ? []
-        : state.payables.filter((p) => p.organizationId === scope.organizationId);
+
+    const state = store.getState();
+    const orgReceivables = state.receivables.filter((r) => r.organizationId === scope.organizationId);
+
+    // Strict client isolation: Cliente NEVER receives agency-level aggregated P&L, payables, or other clients' totals
+    if (clientScope.isClient) {
+      const clientReceivables = orgReceivables.filter((r) => r.clientId === clientScope.clientId);
+      const clientAdAccounts = state.adAccounts.filter(
+        (a) => a.organizationId === scope.organizationId && a.clientId === clientScope.clientId
+      );
+      const totalBilled = clientReceivables.reduce((sum, r) => sum + r.amount, 0);
+      const receivedRevenue = clientReceivables.reduce((sum, r) => sum + r.paidAmount, 0);
+      const pendingReceivables = clientReceivables.reduce((sum, r) => sum + Math.max(0, r.amount - r.paidAmount), 0);
+      const mediaBudgetSeparated = clientReceivables.reduce((sum, r) => sum + (r.mediaBudget || 0), 0);
+      const clientAdSpend = clientAdAccounts.reduce((sum, a) => sum + a.spend, 0);
+
+      res.json({
+        scope: 'client',
+        clientId: clientScope.clientId,
+        totalBilled,
+        receivedRevenue,
+        pendingReceivables,
+        mediaBudgetSeparated,
+        clientAdSpend,
+        invoicesCount: clientReceivables.length,
+        separationRule: 'Visão financeira isolada do cliente autenticado. Verba de mídia contabilizada separadamente.',
+      });
+      return;
+    }
+
+    const orgPayables = state.payables.filter((p) => p.organizationId === scope.organizationId);
 
     // Strictly sum ONLY agency fees/setup; mediaBudget NEVER enters agencyRevenue!
     const agencyRevenue = orgReceivables.reduce((sum, r) => sum + r.amount, 0);
@@ -974,6 +1190,7 @@ export function createApp(
     const operatingMarginPct = agencyRevenue > 0 ? ((netOperatingResult / agencyRevenue) * 100).toFixed(1) : '0.0';
 
     res.json({
+      scope: 'organization',
       agencyRevenue,
       receivedRevenue,
       pendingReceivables,
@@ -991,9 +1208,11 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
     let list = store.getState().receivables.filter((r) => r.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
-      list = list.filter((r) => r.clientId === req.auth!.clientId);
+    if (clientScope.isClient) {
+      list = list.filter((r) => r.clientId === clientScope.clientId);
     }
     res.json(list);
   });
@@ -1082,9 +1301,11 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado a projetos de outra organização.' });
       return;
     }
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
     let list = store.getState().projects.filter((p) => p.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
-      list = list.filter((p) => p.clientId === req.auth!.clientId);
+    if (clientScope.isClient) {
+      list = list.filter((p) => p.clientId === clientScope.clientId);
     }
     res.json(list);
   });
@@ -1104,6 +1325,21 @@ export function createApp(
     const client = state.clients.find((c) => c.id === clientId && c.organizationId === scope.organizationId);
     if (!client) {
       res.status(404).json({ error: 'Cliente não encontrado na organização ativa.' });
+      return;
+    }
+    const entitlementCheck = assertEntitlement(store, {
+      organizationId: scope.organizationId,
+      resource: 'feature',
+      increment: 0,
+      actorUserId: req.auth!.user.id,
+      actionContext: 'POST /api/projects',
+    });
+    if (!entitlementCheck.allowed) {
+      res.status(entitlementCheck.httpStatus).json({
+        error: entitlementCheck.error,
+        code: entitlementCheck.code,
+        entitlements: entitlementCheck.entitlements,
+      });
       return;
     }
     const project = {
@@ -1133,9 +1369,11 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
     let list = store.getState().briefings.filter((b) => b.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
-      list = list.filter((b) => b.clientId === req.auth!.clientId);
+    if (clientScope.isClient) {
+      list = list.filter((b) => b.clientId === clientScope.clientId);
     }
     res.json(list);
   });
@@ -1179,6 +1417,14 @@ export function createApp(
     if (req.query.projectId) {
       list = list.filter((t) => t.projectId === req.query.projectId);
     }
+    if (typeof req.query.status === 'string' && req.query.status.trim()) {
+      const requestedStatus = req.query.status.trim();
+      if (!VALID_TASK_STATUS.has(requestedStatus)) {
+        res.status(400).json({ error: 'Filtro de status de tarefa inválido.' });
+        return;
+      }
+      list = list.filter((t) => t.status === requestedStatus);
+    }
     res.json(list);
   });
 
@@ -1188,19 +1434,29 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
-    const { projectId, title, priority, dueDate, estimatedHours } = req.body || {};
+    const { projectId, title, status, priority, dueDate, estimatedHours } = req.body || {};
     const project = store.getState().projects.find((p) => p.id === projectId && p.organizationId === scope.organizationId);
     if (!project || !title) {
       res.status(400).json({ error: 'Projeto válido e título da tarefa são obrigatórios.' });
       return;
     }
+    if (status !== undefined && !VALID_TASK_STATUS.has(status)) {
+      res.status(400).json({ error: 'Status de tarefa inválido.' });
+      return;
+    }
+    const resolvedStatus = (status && VALID_TASK_STATUS.has(status) ? status : 'A fazer') as
+      | 'Backlog'
+      | 'A fazer'
+      | 'Em andamento'
+      | 'Em revisão'
+      | 'Concluída';
     const resolvedPriority = priority && VALID_TASK_PRIORITY.has(priority) ? priority : 'Normal';
     const task = {
       id: uid('tsk'),
       organizationId: scope.organizationId,
       projectId: project.id,
       title: String(title).trim(),
-      status: 'A fazer' as const,
+      status: resolvedStatus,
       priority: resolvedPriority,
       assigneeId: req.auth!.user.id,
       dueDate: String(dueDate || project.dueDate),
@@ -1209,7 +1465,7 @@ export function createApp(
     };
     store.getState().tasks.push(task);
     recalculateProjectProgress(store, project.id);
-    store.audit(scope.organizationId, req.auth!.user.id, 'TASK_CREATED', 'Task', task.id, { projectId: project.id });
+    store.audit(scope.organizationId, req.auth!.user.id, 'TASK_CREATED', 'Task', task.id, { projectId: project.id, status: task.status });
     res.status(201).json(task);
   });
 
@@ -1251,11 +1507,15 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
     const state = store.getState();
     let list = state.deliverables.filter((d) => d.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
+    if (clientScope.isClient) {
       const clientProjectIds = new Set(
-        state.projects.filter((p) => p.clientId === req.auth!.clientId).map((p) => p.id)
+        state.projects
+          .filter((p) => p.organizationId === scope.organizationId && p.clientId === clientScope.clientId)
+          .map((p) => p.id)
       );
       list = list.filter((d) => clientProjectIds.has(d.projectId));
     }
@@ -1299,9 +1559,11 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
     let list = store.getState().approvals.filter((a) => a.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
-      list = list.filter((a) => a.clientId === req.auth!.clientId);
+    if (clientScope.isClient) {
+      list = list.filter((a) => a.clientId === clientScope.clientId);
     }
     res.json(list);
   });
@@ -1394,7 +1656,19 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
-    res.json(store.getState().timeTracking.filter((t) => t.organizationId === scope.organizationId));
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
+    const state = store.getState();
+    let list = state.timeTracking.filter((t) => t.organizationId === scope.organizationId);
+    if (clientScope.isClient) {
+      const clientProjectIds = new Set(
+        state.projects
+          .filter((p) => p.organizationId === scope.organizationId && p.clientId === clientScope.clientId)
+          .map((p) => p.id)
+      );
+      list = list.filter((t) => clientProjectIds.has(t.projectId));
+    }
+    res.json(list);
   });
 
   app.post('/api/time-tracking', requirePermission('tasks.update'), (req: Request, res: Response) => {
@@ -1440,9 +1714,11 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
     let list = store.getState().creatives.filter((c) => c.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
-      list = list.filter((c) => c.clientId === req.auth!.clientId);
+    if (clientScope.isClient) {
+      list = list.filter((c) => c.clientId === clientScope.clientId);
     }
     res.json(list);
   });
@@ -1507,16 +1783,35 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
     let accounts = store.getState().adAccounts.filter((a) => a.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
-      accounts = accounts.filter((a) => a.clientId === req.auth!.clientId);
+    if (clientScope.isClient) {
+      accounts = accounts.filter((a) => a.clientId === clientScope.clientId);
     }
-    const totalSpend = accounts.reduce((s, a) => s + a.spend, 0);
-    const totalConversions = accounts.reduce((s, a) => s + a.conversions, 0);
+    const enrichedAccounts = accounts.map((a) => {
+      const providerId = mapAdAccountPlatformToProvider(a.platform);
+      if (!providerId) return a;
+      const readiness = getAdPlatformReadiness(store, scope.organizationId, providerId);
+      if (readiness.configured) {
+        return {
+          ...a,
+          connectionStatus:
+            readiness.source === 'encrypted_db' || readiness.source === 'mixed'
+              ? 'Conectado (Cofre Criptografado)'
+              : 'Conectado (Env)',
+        };
+      }
+      return a;
+    });
+    const totalSpend = enrichedAccounts.reduce((s, a) => s + a.spend, 0);
+    const totalConversions = enrichedAccounts.reduce((s, a) => s + a.conversions, 0);
     const averageRoas =
-      accounts.length > 0 ? Number((accounts.reduce((s, a) => s + a.roas, 0) / accounts.length).toFixed(2)) : 0;
+      enrichedAccounts.length > 0
+        ? Number((enrichedAccounts.reduce((s, a) => s + a.roas, 0) / enrichedAccounts.length).toFixed(2))
+        : 0;
 
-    const recommendations = accounts.map((a) => {
+    const recommendations = enrichedAccounts.map((a) => {
       if (a.conversions < 30 || a.clicks < 500) {
         return {
           accountId: a.id,
@@ -1542,7 +1837,7 @@ export function createApp(
     });
 
     res.json({
-      adAccounts: accounts,
+      adAccounts: enrichedAccounts,
       summary: { totalSpend, totalConversions, averageRoas },
       recommendations,
     });
@@ -1705,9 +2000,12 @@ export function createApp(
     res.json(store.getState().webPages.filter((w) => w.organizationId === scope.organizationId));
   });
 
-  app.post('/api/web/pages', requirePermission('web.manage'), (req: Request, res: Response) => {
+  app.post('/api/web/pages', requirePermission('web.manage'), async (req: Request, res: Response) => {
     const scope = resolveScopedOrg(req, req.body?.organizationId);
     if (!scope.allowed) {
+      req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'WebPage', {
+        reason: 'cross_tenant_webpage_create',
+      });
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
@@ -1716,49 +2014,74 @@ export function createApp(
       res.status(400).json({ error: 'clientId, título e slug são obrigatórios.' });
       return;
     }
-    const state = store.getState();
-    const clientExists = state.clients.some((c) => c.id === clientId && c.organizationId === scope.organizationId);
-    if (!clientExists) {
-      res.status(404).json({ error: 'Cliente informado não pertence à organização ativa.' });
-      return;
-    }
     const cleanSlug = String(slug).trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    if (state.webPages.some((w) => w.slug === cleanSlug)) {
-      res.status(409).json({ error: 'Slug já em uso por outra página.' });
-      return;
-    }
-    const page = {
-      id: uid('wp'),
-      organizationId: scope.organizationId,
-      clientId,
-      title: String(title).trim(),
-      slug: cleanSlug,
-      segment: String(segment || 'Geral'),
-      pageType: pageType || 'Landing Page Captura',
-      domain: String(domain || `${cleanSlug}.nerpages.com`),
-      sslStatus: 'Pendente DNS' as const,
-      status: 'Rascunho' as const,
-      version: 'v1.0',
-      seoTitle: String(title).trim(),
-      seoDescription: `Página oficial ${String(title).trim()}`,
-      whatsappNumber: whatsappNumber ? String(whatsappNumber) : undefined,
-      checkoutUrl: checkoutUrl ? String(checkoutUrl) : undefined,
-      pixelConfigured: false,
-      sections: [
-        {
-          id: uid('sec'),
-          type: 'Hero',
-          headline: String(title).trim(),
-          subheadline: 'Oferta comercial estruturada no NER Digital Studio.',
-          ctaText: 'Solicitar Orçamento',
-        },
-      ],
-      visits: 0,
-      leadsCaptured: 0,
-    };
-    state.webPages.push(page);
-    store.audit(scope.organizationId, req.auth!.user.id, 'WEB_PAGE_CREATED', 'WebPage', page.id, { slug: page.slug });
-    res.status(201).json(page);
+    const resolvedPageType = pageType || 'Landing Page Captura';
+    const quotaResource = classifyWebPageQuotaResource(resolvedPageType);
+
+    const outcome = await withOrgQuotaLock(scope.organizationId, () => {
+      const state = store.getState();
+      const clientExists = state.clients.some((c) => c.id === clientId && c.organizationId === scope.organizationId);
+      if (!clientExists) {
+        return { status: 404 as const, body: { error: 'Cliente informado não pertence à organização ativa.' } };
+      }
+      if (state.webPages.some((w) => w.slug === cleanSlug)) {
+        return { status: 409 as const, body: { error: 'Slug já em uso por outra página.' } };
+      }
+      const entitlementCheck = assertEntitlement(store, {
+        organizationId: scope.organizationId,
+        resource: quotaResource,
+        increment: 1,
+        actorUserId: req.auth!.user.id,
+        actionContext: 'POST /api/web/pages',
+      });
+      if (!entitlementCheck.allowed) {
+        return {
+          status: entitlementCheck.httpStatus,
+          body: {
+            error: entitlementCheck.error,
+            code: entitlementCheck.code,
+            entitlements: entitlementCheck.entitlements,
+          },
+        };
+      }
+      const createdPage = store.runTransaction((txState) => {
+        const page = {
+          id: uid('wp'),
+          organizationId: scope.organizationId,
+          clientId,
+          title: String(title).trim(),
+          slug: cleanSlug,
+          segment: String(segment || 'Geral'),
+          pageType: resolvedPageType,
+          domain: String(domain || `${cleanSlug}.nerpages.com`),
+          sslStatus: 'Pendente DNS' as const,
+          status: 'Rascunho' as const,
+          version: 'v1.0',
+          seoTitle: String(title).trim(),
+          seoDescription: `Página oficial ${String(title).trim()}`,
+          whatsappNumber: whatsappNumber ? String(whatsappNumber) : undefined,
+          checkoutUrl: checkoutUrl ? String(checkoutUrl) : undefined,
+          pixelConfigured: false,
+          sections: [
+            {
+              id: uid('sec'),
+              type: 'Hero',
+              headline: String(title).trim(),
+              subheadline: 'Oferta comercial estruturada no NER Digital Studio.',
+              ctaText: 'Solicitar Orçamento',
+            },
+          ],
+          visits: 0,
+          leadsCaptured: 0,
+        };
+        txState.webPages.push(page);
+        return page;
+      });
+      store.audit(scope.organizationId, req.auth!.user.id, 'WEB_PAGE_CREATED', 'WebPage', createdPage.id, { slug: createdPage.slug });
+      return { status: 201 as const, body: createdPage };
+    });
+
+    res.status(outcome.status).json(outcome.body);
   });
 
   app.patch('/api/web/pages/:id', requirePermission('web.manage'), (req: Request, res: Response) => {
@@ -1770,6 +2093,23 @@ export function createApp(
     if (req.body?.status !== undefined && !VALID_WEB_STATUS.has(req.body.status)) {
       res.status(400).json({ error: 'Status de página web inválido.' });
       return;
+    }
+    if (req.body?.status === 'Publicado') {
+      const entitlementCheck = assertEntitlement(store, {
+        organizationId: page.organizationId,
+        resource: 'feature',
+        increment: 0,
+        actorUserId: req.auth!.user.id,
+        actionContext: 'PATCH /api/web/pages/:id (publish)',
+      });
+      if (!entitlementCheck.allowed) {
+        res.status(entitlementCheck.httpStatus).json({
+          error: entitlementCheck.error,
+          code: entitlementCheck.code,
+          entitlements: entitlementCheck.entitlements,
+        });
+        return;
+      }
     }
     const fields = ['title', 'status', 'seoTitle', 'seoDescription', 'whatsappNumber', 'checkoutUrl', 'pixelConfigured', 'sections', 'domain'];
     for (const f of fields) {
@@ -1895,9 +2235,11 @@ export function createApp(
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
+    const clientScope = resolveClientIsolation(req, res);
+    if (!clientScope) return;
     let list = store.getState().tickets.filter((t) => t.organizationId === scope.organizationId);
-    if (req.auth!.user.role === 'Cliente') {
-      list = list.filter((t) => t.clientId === req.auth!.clientId);
+    if (clientScope.isClient) {
+      list = list.filter((t) => t.clientId === clientScope.clientId);
     }
     res.json(list);
   });
@@ -1969,6 +2311,9 @@ export function createApp(
     }
     const state = store.getState();
     const mem = process.memoryUsage();
+    const metaReadiness = getAdPlatformReadiness(store, scope.organizationId, 'meta_ads');
+    const googleReadiness = getAdPlatformReadiness(store, scope.organizationId, 'google_ads');
+    const tiktokReadiness = getAdPlatformReadiness(store, scope.organizationId, 'tiktok_ads');
     res.json({
       uptimeSeconds: Math.floor(process.uptime()),
       memoryRssMb: Math.round(mem.rss / 1024 / 1024),
@@ -1976,10 +2321,13 @@ export function createApp(
       persistence: 'Atomic JSON File (database/data/ner-db.json)',
       incidents: state.incidents.filter((i) => i.organizationId === scope.organizationId),
       integrationsReadiness: [
+        { name: 'Meta Ads & CAPI', configured: metaReadiness.configured, statusLabel: metaReadiness.statusLabel },
+        { name: 'Google Ads & GA4', configured: googleReadiness.configured, statusLabel: googleReadiness.statusLabel },
+        { name: 'TikTok Ads', configured: tiktokReadiness.configured, statusLabel: tiktokReadiness.statusLabel },
         { name: 'Gemini AI (@google/genai)', configured: Boolean(process.env.GEMINI_API_KEY) },
         { name: 'Stripe Billing & Webhooks', configured: Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET) },
-        { name: 'PostgreSQL / Prisma (runtime driver)', configured: false },
-        { name: 'Redis / BullMQ (runtime worker)', configured: false },
+        { name: 'PostgreSQL / Prisma (runtime driver)', configured: Boolean(process.env.DATABASE_URL) },
+        { name: 'Redis / BullMQ (runtime worker)', configured: Boolean(process.env.REDIS_URL) },
         { name: 'n8n External Automations', configured: Boolean(process.env.N8N_WEBHOOK_URL) },
       ],
     });
@@ -1987,8 +2335,20 @@ export function createApp(
 
   // --- NER SAAS BILLING & STRIPE WEBHOOKS ---
   app.get('/api/billing/subscription', requirePermission('billing.read'), (req: Request, res: Response) => {
+    if (!SAAS_BILLING_ADMIN_ROLES.has(req.auth!.user.role)) {
+      req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'SaaSSubscription', {
+        reason: 'non_admin_subscription_access',
+      });
+      res.status(403).json({
+        error: 'Acesso negado. Apenas administradores autorizados podem visualizar a assinatura SaaS.',
+      });
+      return;
+    }
     const scope = resolveScopedOrg(req, req.query.organizationId as string | undefined);
     if (!scope.allowed) {
+      req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'SaaSSubscription', {
+        reason: 'cross_tenant_subscription_access',
+      });
       res.status(403).json({ error: 'Acesso negado.' });
       return;
     }
@@ -2004,6 +2364,25 @@ export function createApp(
       webhookEvents,
       stripeLiveConfigured: Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_WEBHOOK_SECRET),
     });
+  });
+
+  app.get('/api/billing/entitlements', requireAuth, (req: Request, res: Response) => {
+    if (req.auth!.user.role === 'Cliente') {
+      req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'Entitlements', {
+        reason: 'client_entitlements_access',
+      });
+      res.status(403).json({ error: 'Acesso negado. Limites de plano SaaS são restritos à equipe interna.' });
+      return;
+    }
+    const scope = resolveScopedOrg(req, req.query.organizationId as string | undefined);
+    if (!scope.allowed) {
+      req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'Entitlements', {
+        reason: 'cross_tenant_entitlements_access',
+      });
+      res.status(403).json({ error: 'Acesso negado.' });
+      return;
+    }
+    res.json(evaluateOrganizationEntitlements(store, scope.organizationId));
   });
 
   app.post('/api/billing/checkout', requirePermission('billing.manage'), (req: Request, res: Response) => {
@@ -2112,5 +2491,21 @@ export function createApp(
   });
   app.use('/api/ai', createAiGatewayRouter(store, aiGateway));
 
-  return { app, store, aiGateway };
+  // --- PRODUCTION MODULES (PASSWORD RESET, LIVE STRIPE, STORAGE, INTEGRATIONS, STRATEGY, PUBLIC WEB, QA/LAUNCH/DELIVERY) ---
+  app.use(createProductionModulesRouter(store));
+
+  // Global safe Express error handler (never leaks stack traces or internal file paths)
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    if (err?.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+      res.status(400).json({ error: 'Payload JSON inválido.' });
+      return;
+    }
+    if (err?.type === 'entity.too.large') {
+      res.status(413).json({ error: 'Tamanho máximo do payload excedido.' });
+      return;
+    }
+    res.status(500).json({ error: 'Erro interno ao processar a solicitação.' });
+  });
+
+  return { app, store, aiGateway, repositories };
 }

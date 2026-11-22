@@ -134,9 +134,13 @@ const DEMO_PROFILES = [
 ];
 
 export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
-  const [mode, setMode] = useState<'login' | 'forgot'>('login');
+  const initialToken =
+    typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('resetToken') || '' : '';
+  const [mode, setMode] = useState<'login' | 'forgot' | 'reset'>(initialToken ? 'reset' : 'login');
   const [email, setEmail] = useState('maycon@neragency.com');
   const [password, setPassword] = useState('NerAgency@2026');
+  const [resetToken, setResetToken] = useState(initialToken);
+  const [newPassword, setNewPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,11 +186,20 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setLoading(true);
     try {
       if (mode === 'forgot') {
-        const res = await apiFetch<{ message: string }>('/api/auth/forgot-password', {
+        const res = await apiFetch<{ message: string; emailDelivery?: string }>('/api/auth/forgot-password', {
           method: 'POST',
           body: JSON.stringify({ email }),
         });
         setForgotMessage(res.message);
+      } else if (mode === 'reset') {
+        const res = await apiFetch<{ message: string }>('/api/auth/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({ token: resetToken.trim(), newPassword }),
+        });
+        setForgotMessage(res.message || 'Senha redefinida com sucesso! Faça login com a nova senha.');
+        setNewPassword('');
+        setResetToken('');
+        setMode('login');
       } else {
         const res = await apiFetch<{ user: any; permissions: string[]; token: string }>('/api/auth/login', {
           method: 'POST',
@@ -303,20 +316,22 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">E-mail Corporativo</label>
-            <div className="relative">
-              <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
-                placeholder="nome@neragency.com"
-              />
+          {mode !== 'reset' && (
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">E-mail Corporativo</label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="nome@neragency.com"
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           {mode === 'login' && (
             <div>
@@ -335,12 +350,49 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
             </div>
           )}
 
+          {mode === 'reset' && (
+            <>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">Token de Redefinição (uso único)</label>
+                <input
+                  type="text"
+                  required
+                  value={resetToken}
+                  onChange={(e) => setResetToken(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
+                  placeholder="Cole o token recebido por e-mail"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">Nova Senha (mín. 8 caracteres, letras + números)</label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-2.5" />
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3 py-2 text-sm text-white focus:outline-none focus:border-cyan-500"
+                    placeholder="Nova senha forte"
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
           <button
             type="submit"
             disabled={loading || googleLoading}
             className="w-full py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-white text-sm font-semibold flex items-center justify-center gap-2 transition-all"
           >
-            {loading ? 'Validando...' : mode === 'login' ? 'Entrar na Plataforma' : 'Solicitar Redefinição'}
+            {loading
+              ? 'Validando...'
+              : mode === 'login'
+                ? 'Entrar na Plataforma'
+                : mode === 'forgot'
+                  ? 'Solicitar Token de Redefinição'
+                  : 'Confirmar Nova Senha'}
             <ArrowRight className="w-4 h-4" />
           </button>
         </form>
@@ -382,18 +434,33 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           </div>
         )}
 
-        <div className="flex items-center justify-between text-xs pt-1">
-          <button
-            type="button"
-            onClick={() => {
-              setMode(mode === 'login' ? 'forgot' : 'login');
-              setError(null);
-              setForgotMessage(null);
-            }}
-            className="text-cyan-400 hover:text-cyan-300"
-          >
-            {mode === 'login' ? 'Esqueci minha senha' : 'Voltar para o login'}
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs pt-1">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setMode(mode === 'login' ? 'forgot' : 'login');
+                setError(null);
+                setForgotMessage(null);
+              }}
+              className="text-cyan-400 hover:text-cyan-300"
+            >
+              {mode === 'login' ? 'Esqueci minha senha' : 'Voltar para o login'}
+            </button>
+            {mode !== 'reset' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('reset');
+                  setError(null);
+                  setForgotMessage(null);
+                }}
+                className="text-slate-400 hover:text-cyan-300"
+              >
+                Já tenho token
+              </button>
+            )}
+          </div>
           <span className="text-slate-500 flex items-center gap-1">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" /> Sessão HttpOnly
           </span>

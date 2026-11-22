@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import {
   LayoutDashboard,
   Briefcase,
@@ -30,31 +30,43 @@ import {
   Settings,
   Menu,
   X,
+  UserCheck,
+  LifeBuoy,
+  ClipboardCheck,
+  Rocket,
+  FileCheck2,
 } from 'lucide-react';
 import { apiFetch } from './lib/api';
 import { LoginScreen } from './components/LoginScreen';
-import { UsersManagementView, OrganizationsView, RbacView, AuditLogsView } from './components/CoreViews';
-import {
-  CrmLeadsView,
-  PipelineKanbanView,
-  CommercialPlansView,
-  ProposalsView,
-  ContractsView,
-  FinanceView,
-} from './components/BusinessViews';
-import {
-  DashboardView,
-  ProjectsView,
-  CreativeView,
-  PerformanceView,
-  WebView,
-  AutomationView,
-  IntelligenceTrackingView,
-  ClientPortalView,
-  OperationsBillingView,
-  StrategyView,
-} from './components/OperationsViews';
-import { AiCenterView, AiTabId } from './components/AiCenterViews';
+import type { AiTabId } from './components/AiCenterViews';
+
+const UsersManagementView = lazy(() => import('./components/CoreViews').then((m) => ({ default: m.UsersManagementView })));
+const OrganizationsView = lazy(() => import('./components/CoreViews').then((m) => ({ default: m.OrganizationsView })));
+const RbacView = lazy(() => import('./components/CoreViews').then((m) => ({ default: m.RbacView })));
+const AuditLogsView = lazy(() => import('./components/CoreViews').then((m) => ({ default: m.AuditLogsView })));
+
+const CrmLeadsView = lazy(() => import('./components/BusinessViews').then((m) => ({ default: m.CrmLeadsView })));
+const PipelineKanbanView = lazy(() => import('./components/BusinessViews').then((m) => ({ default: m.PipelineKanbanView })));
+const CommercialPlansView = lazy(() => import('./components/BusinessViews').then((m) => ({ default: m.CommercialPlansView })));
+const ProposalsView = lazy(() => import('./components/BusinessViews').then((m) => ({ default: m.ProposalsView })));
+const ContractsView = lazy(() => import('./components/BusinessViews').then((m) => ({ default: m.ContractsView })));
+const FinanceView = lazy(() => import('./components/BusinessViews').then((m) => ({ default: m.FinanceView })));
+
+const DashboardView = lazy(() => import('./components/OperationsViews').then((m) => ({ default: m.DashboardView })));
+const ProjectsView = lazy(() => import('./components/OperationsViews').then((m) => ({ default: m.ProjectsView })));
+const CreativeView = lazy(() => import('./components/OperationsViews').then((m) => ({ default: m.CreativeView })));
+const PerformanceView = lazy(() => import('./components/OperationsViews').then((m) => ({ default: m.PerformanceView })));
+const WebView = lazy(() => import('./components/OperationsViews').then((m) => ({ default: m.WebView })));
+const AutomationView = lazy(() => import('./components/OperationsViews').then((m) => ({ default: m.AutomationView })));
+const IntelligenceTrackingView = lazy(() => import('./components/OperationsViews').then((m) => ({ default: m.IntelligenceTrackingView })));
+const ClientPortalView = lazy(() => import('./components/OperationsViews').then((m) => ({ default: m.ClientPortalView })));
+const OperationsBillingView = lazy(() => import('./components/OperationsViews').then((m) => ({ default: m.OperationsBillingView })));
+const StrategyView = lazy(() => import('./components/OperationsViews').then((m) => ({ default: m.StrategyView })));
+
+const AiCenterView = lazy(() => import('./components/AiCenterViews').then((m) => ({ default: m.AiCenterView })));
+const ClientsManagementView = lazy(() => import('./components/ClientsManagementView').then((m) => ({ default: m.ClientsManagementView })));
+const TicketsManagementView = lazy(() => import('./components/ProductionModulesViews').then((m) => ({ default: m.TicketsManagementView })));
+const QaLaunchDeliveryHubView = lazy(() => import('./components/ProductionModulesViews').then((m) => ({ default: m.QaLaunchDeliveryHubView })));
 
 type TabId =
   | 'dashboard'
@@ -72,11 +84,16 @@ type TabId =
   | 'automation'
   | 'intelligence-tracking'
   | 'client-portal'
+  | 'core-clients'
   | 'core-users'
   | 'core-orgs'
   | 'core-rbac'
   | 'core-audit'
+  | 'ops-tickets'
   | 'ops-billing'
+  | 'ops-qa'
+  | 'ops-launch'
+  | 'ops-delivery'
   | AiTabId;
 
 export default function App() {
@@ -202,10 +219,10 @@ export default function App() {
       hasPerm('plans.read') ? safeFetch('/api/plans', []) : Promise.resolve([]),
       hasPerm('proposals.read') ? safeFetch(`/api/proposals?${q}`, []) : Promise.resolve([]),
       hasPerm('contracts.read') ? safeFetch(`/api/contracts?${q}`, []) : Promise.resolve([]),
-      hasPerm('finance.read') ? safeFetch(`/api/finance/summary?${q}`, null) : Promise.resolve(null),
+      hasPerm('finance.read') && !isClient ? safeFetch(`/api/finance/summary?${q}`, null) : Promise.resolve(null),
       hasPerm('finance.read') ? safeFetch(`/api/finance/receivables?${q}`, []) : Promise.resolve([]),
-      hasPerm('finance.read') ? safeFetch(`/api/finance/payables?${q}`, []) : Promise.resolve([]),
-      hasPerm('finance.read') ? safeFetch(`/api/commissions?${q}`, []) : Promise.resolve([]),
+      hasPerm('finance.read') && !isClient ? safeFetch(`/api/finance/payables?${q}`, []) : Promise.resolve([]),
+      hasPerm('finance.read') && !isClient ? safeFetch(`/api/commissions?${q}`, []) : Promise.resolve([]),
       hasPerm('projects.read') ? safeFetch(`/api/projects?${q}`, []) : Promise.resolve([]),
       hasPerm('projects.read') ? safeFetch(`/api/briefings?${q}`, []) : Promise.resolve([]),
       hasPerm('tasks.read') ? safeFetch(`/api/tasks?${q}`, []) : Promise.resolve([]),
@@ -220,7 +237,9 @@ export default function App() {
       hasPerm('tracking.read') ? safeFetch(`/api/tracking/events?${q}`, []) : Promise.resolve([]),
       safeFetch(`/api/tickets?${q}`, []),
       hasPerm('operations.read') ? safeFetch(`/api/operations/overview?${q}`, null) : Promise.resolve(null),
-      hasPerm('billing.read') ? safeFetch(`/api/billing/subscription?${q}`, null) : Promise.resolve(null),
+      hasPerm('billing.read') && (currentUser.role === 'Super Admin' || currentUser.role === 'Administrador')
+        ? safeFetch(`/api/billing/subscription?${q}`, null)
+        : Promise.resolve(null),
       safeFetch('/api/roles', []),
       safeFetch('/api/permissions', []),
       hasPerm('audit.read') ? safeFetch(`/api/audit-logs?${q}`, []) : Promise.resolve([]),
@@ -418,6 +437,12 @@ export default function App() {
               Cliente & Governança
             </div>
             <SidebarItem icon={<ShieldCheck className="w-4 h-4" />} label="Portal do Cliente" active={activeTab === 'client-portal'} onClick={() => setActiveTab('client-portal')} />
+            {!isClient && hasPerm('clients.read') && (
+              <SidebarItem icon={<UserCheck className="w-4 h-4" />} label="Gestão de Clientes" active={activeTab === 'core-clients'} onClick={() => setActiveTab('core-clients')} />
+            )}
+            {!isClient && (
+              <SidebarItem icon={<LifeBuoy className="w-4 h-4" />} label="Chamados (Tickets)" active={activeTab === 'ops-tickets'} onClick={() => setActiveTab('ops-tickets')} />
+            )}
             {hasPerm('users.read') && <SidebarItem icon={<Users className="w-4 h-4" />} label="Usuários" active={activeTab === 'core-users'} onClick={() => setActiveTab('core-users')} />}
             {!isClient && <SidebarItem icon={<Building2 className="w-4 h-4" />} label="Organizações" active={activeTab === 'core-orgs'} onClick={() => setActiveTab('core-orgs')} />}
             {!isClient && <SidebarItem icon={<Key className="w-4 h-4" />} label="Perfis & RBAC" active={activeTab === 'core-rbac'} onClick={() => setActiveTab('core-rbac')} />}
@@ -425,6 +450,17 @@ export default function App() {
             {(hasPerm('operations.read') || hasPerm('billing.read')) && !isClient && (
               <SidebarItem icon={<Server className="w-4 h-4" />} label="Operações & Billing" active={activeTab === 'ops-billing'} onClick={() => setActiveTab('ops-billing')} />
             )}
+
+            <div className="pt-3 text-[10px] uppercase font-semibold text-emerald-400 px-3 pb-1 tracking-wider">
+              QA, Go-Live & Entrega
+            </div>
+            {!isClient && (
+              <>
+                <SidebarItem icon={<ClipboardCheck className="w-4 h-4" />} label="NER Integration & QA" active={activeTab === 'ops-qa'} onClick={() => setActiveTab('ops-qa')} />
+                <SidebarItem icon={<Rocket className="w-4 h-4" />} label="Prontidão & Go-Live" active={activeTab === 'ops-launch'} onClick={() => setActiveTab('ops-launch')} />
+              </>
+            )}
+            <SidebarItem icon={<FileCheck2 className="w-4 h-4" />} label="Validação & Entrega" active={activeTab === 'ops-delivery'} onClick={() => setActiveTab('ops-delivery')} />
 
             {hasPerm('ai.read') && !isClient && (
               <>
@@ -456,170 +492,237 @@ export default function App() {
         </aside>
 
         <main className="flex-1 overflow-y-auto p-6 md:p-8 bg-slate-950">
-          {activeTab === 'dashboard' && (
-            <DashboardView
-              clients={clients}
-              leads={leads}
-              projects={projects}
-              financeSummary={financeSummary}
-              performanceData={performanceData}
-              currentOrg={currentOrg}
-            />
-          )}
-          {activeTab === 'business-crm' && (
-            <CrmLeadsView leads={leads} activeOrgId={activeOrgId} onRefresh={loadScopedData} onNotify={notify} />
-          )}
-          {activeTab === 'business-pipeline' && (
-            <PipelineKanbanView
-              opportunities={opportunities}
-              clients={clients}
-              activeOrgId={activeOrgId}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'business-plans' && (
-            <CommercialPlansView
-              plans={plans}
-              clients={clients}
-              activeOrgId={activeOrgId}
-              currentUser={currentUser}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-              onNavigateProjects={() => setActiveTab('projects')}
-            />
-          )}
-          {activeTab === 'business-proposals' && (
-            <ProposalsView
-              proposals={proposals}
-              clients={clients}
-              activeOrgId={activeOrgId}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'business-contracts' && <ContractsView contracts={contracts} />}
-          {activeTab === 'business-finance' && (
-            <FinanceView
-              financeSummary={financeSummary}
-              receivables={receivables}
-              payables={payables}
-              commissions={commissions}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'projects' && (
-            <ProjectsView
-              projects={projects}
-              tasks={tasks}
-              deliverables={deliverables}
-              briefings={briefings}
-              approvals={approvals}
-              timeEntries={timeEntries}
-              clients={clients}
-              activeOrgId={activeOrgId}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'creative' && (
-            <CreativeView
-              creatives={creatives}
-              clients={clients}
-              activeOrgId={activeOrgId}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'performance' && (
-            <PerformanceView performanceData={performanceData} onRefresh={loadScopedData} onNotify={notify} />
-          )}
-          {activeTab === 'web' && (
-            <WebView
-              webPages={webPages}
-              clients={clients}
-              activeOrgId={activeOrgId}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'automation' && (
-            <AutomationView workflows={workflows} onRefresh={loadScopedData} onNotify={notify} />
-          )}
-          {activeTab === 'intelligence-tracking' && (
-            <IntelligenceTrackingView
-              intelligence={intelligence}
-              trackingEvents={trackingEvents}
-              clients={clients}
-              activeOrgId={activeOrgId}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'strategy' && <StrategyView activeOrgId={activeOrgId} onNotify={notify} />}
-          {activeTab === 'client-portal' && (
-            <ClientPortalView
-              projects={projects}
-              approvals={approvals}
-              receivables={receivables}
-              tickets={tickets}
-              clients={clients}
-              activeOrgId={activeOrgId}
-              currentUser={currentUser}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'core-users' && (
-            <UsersManagementView
-              usersList={usersList}
-              organizations={organizations}
-              clients={clients}
-              activeOrgId={activeOrgId}
-              currentUser={currentUser}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'core-orgs' && (
-            <OrganizationsView
-              organizations={organizations}
-              currentUser={currentUser}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'core-rbac' && <RbacView roles={roles} permissions={allPermissions} />}
-          {activeTab === 'core-audit' && (
-            <AuditLogsView
-              auditLogs={auditLogs}
-              clients={clients}
-              currentUser={currentUser}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab === 'ops-billing' && (
-            <OperationsBillingView
-              operations={operations}
-              billing={billing}
-              plans={plans}
-              activeOrgId={activeOrgId}
-              onRefresh={loadScopedData}
-              onNotify={notify}
-            />
-          )}
-          {activeTab.startsWith('ai-') && (
-            <AiCenterView
-              activeTab={activeTab as AiTabId}
-              activeOrgId={activeOrgId}
-              currentUser={currentUser}
-              clients={clients}
-              permissions={permissions}
-              onNotify={notify}
-            />
-          )}
+          <Suspense
+            fallback={
+              <div className="p-10 text-center text-xs text-slate-400">
+                Carregando módulo...
+              </div>
+            }
+          >
+            {activeTab === 'dashboard' && (
+              <DashboardView
+                clients={clients}
+                leads={leads}
+                projects={projects}
+                financeSummary={financeSummary}
+                performanceData={performanceData}
+                currentOrg={currentOrg}
+              />
+            )}
+            {activeTab === 'business-crm' && (
+              <CrmLeadsView leads={leads} activeOrgId={activeOrgId} onRefresh={loadScopedData} onNotify={notify} />
+            )}
+            {activeTab === 'business-pipeline' && (
+              <PipelineKanbanView
+                opportunities={opportunities}
+                clients={clients}
+                activeOrgId={activeOrgId}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'business-plans' && (
+              <CommercialPlansView
+                plans={plans}
+                clients={clients}
+                activeOrgId={activeOrgId}
+                currentUser={currentUser}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+                onNavigateProjects={() => setActiveTab('projects')}
+              />
+            )}
+            {activeTab === 'business-proposals' && (
+              <ProposalsView
+                proposals={proposals}
+                clients={clients}
+                plans={plans}
+                activeOrgId={activeOrgId}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'business-contracts' && <ContractsView contracts={contracts} />}
+            {activeTab === 'business-finance' && (
+              <FinanceView
+                financeSummary={financeSummary}
+                receivables={receivables}
+                payables={payables}
+                commissions={commissions}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'projects' && (
+              <ProjectsView
+                projects={projects}
+                tasks={tasks}
+                deliverables={deliverables}
+                briefings={briefings}
+                approvals={approvals}
+                timeEntries={timeEntries}
+                clients={clients}
+                activeOrgId={activeOrgId}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'creative' && (
+              <CreativeView
+                creatives={creatives}
+                clients={clients}
+                activeOrgId={activeOrgId}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'performance' && (
+              <PerformanceView
+                performanceData={performanceData}
+                activeOrgId={activeOrgId}
+                canManageVault={hasPerm('operations.manage')}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'web' && (
+              <WebView
+                webPages={webPages}
+                clients={clients}
+                activeOrgId={activeOrgId}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'automation' && (
+              <AutomationView workflows={workflows} onRefresh={loadScopedData} onNotify={notify} />
+            )}
+            {activeTab === 'intelligence-tracking' && (
+              <IntelligenceTrackingView
+                intelligence={intelligence}
+                trackingEvents={trackingEvents}
+                clients={clients}
+                activeOrgId={activeOrgId}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'strategy' && (
+              <StrategyView activeOrgId={activeOrgId} clients={clients} projects={projects} onNotify={notify} />
+            )}
+            {activeTab === 'client-portal' && (
+              <ClientPortalView
+                projects={projects}
+                approvals={approvals}
+                receivables={receivables}
+                tickets={tickets}
+                clients={clients}
+                activeOrgId={activeOrgId}
+                currentUser={currentUser}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'core-clients' && (
+              <ClientsManagementView
+                clients={clients}
+                activeOrgId={activeOrgId}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'ops-tickets' && (
+              <TicketsManagementView
+                tickets={tickets}
+                usersList={usersList}
+                clients={clients}
+                activeOrgId={activeOrgId}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'core-users' && (
+              <UsersManagementView
+                usersList={usersList}
+                organizations={organizations}
+                clients={clients}
+                activeOrgId={activeOrgId}
+                currentUser={currentUser}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'core-orgs' && (
+              <OrganizationsView
+                organizations={organizations}
+                currentUser={currentUser}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'core-rbac' && <RbacView roles={roles} permissions={allPermissions} />}
+            {activeTab === 'core-audit' && (
+              <AuditLogsView
+                auditLogs={auditLogs}
+                clients={clients}
+                currentUser={currentUser}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'ops-billing' && (
+              <OperationsBillingView
+                operations={operations}
+                billing={billing}
+                plans={plans}
+                clients={clients}
+                activeOrgId={activeOrgId}
+                onRefresh={loadScopedData}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'ops-qa' && (
+              <QaLaunchDeliveryHubView
+                mode="qa"
+                activeOrgId={activeOrgId}
+                projects={projects}
+                clients={clients}
+                currentUser={currentUser}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'ops-launch' && (
+              <QaLaunchDeliveryHubView
+                mode="launch"
+                activeOrgId={activeOrgId}
+                projects={projects}
+                clients={clients}
+                currentUser={currentUser}
+                onNotify={notify}
+              />
+            )}
+            {activeTab === 'ops-delivery' && (
+              <QaLaunchDeliveryHubView
+                mode="delivery"
+                activeOrgId={activeOrgId}
+                projects={projects}
+                clients={clients}
+                currentUser={currentUser}
+                onNotify={notify}
+              />
+            )}
+            {activeTab.startsWith('ai-') && (
+              <AiCenterView
+                activeTab={activeTab as AiTabId}
+                activeOrgId={activeOrgId}
+                currentUser={currentUser}
+                clients={clients}
+                permissions={permissions}
+                onNotify={notify}
+                onNavigateTab={(tab) => setActiveTab(tab)}
+              />
+            )}
+          </Suspense>
         </main>
       </div>
     </div>

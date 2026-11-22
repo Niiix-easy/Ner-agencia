@@ -56,6 +56,7 @@ interface AiCenterProps {
   clients: any[];
   permissions: string[];
   onNotify: (message: string, isError?: boolean) => void;
+  onNavigateTab?: (tab: AiTabId) => void;
 }
 
 const PROVIDER_META: Record<string, { badge: string; accent: string; docsHint: string }> = {
@@ -145,6 +146,7 @@ export function AiCenterView({
   clients,
   permissions,
   onNotify,
+  onNavigateTab,
 }: AiCenterProps) {
   const canManage = permissions.includes('*') || permissions.includes('ai.manage');
   const isSuperAdmin = currentUser?.role === 'Super Admin';
@@ -294,8 +296,41 @@ export function AiCenterView({
         </div>
       </div>
 
+      {onNavigateTab && (
+        <nav
+          aria-label="Navegação do NER AI CENTER"
+          className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-slate-800/80"
+        >
+          {(
+            [
+              ['ai-dashboard', 'Dashboard'],
+              ['ai-costs', 'Consumo e Custos'],
+              ['ai-providers', 'Provedores'],
+              ['ai-models', 'Modelos'],
+              ['ai-routing', 'Roteamento'],
+              ['ai-prompts', 'Prompts'],
+              ['ai-history', 'Histórico'],
+              ['ai-settings', 'Configurações'],
+            ] as Array<[AiTabId, string]>
+          ).map(([tabId, label]) => (
+            <button
+              key={tabId}
+              type="button"
+              onClick={() => onNavigateTab(tabId)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
+                activeTab === tabId
+                  ? 'bg-cyan-600 text-white'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-900'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      )}
+
       {activeTab === 'ai-dashboard' && (
-        <AiDashboardTab dashboard={dashboard} providers={providers} />
+        <AiDashboardTab dashboard={dashboard} providers={providers} onNavigateTab={onNavigateTab} />
       )}
       {activeTab === 'ai-providers' && (
         <AiProvidersTab
@@ -355,6 +390,8 @@ export function AiCenterView({
           filters={costFilters}
           onChangeFilters={setCostFilters}
           onInspectLog={(id: string) => setSelectedLogId(id)}
+          onNavigateTab={onNavigateTab}
+          loading={loading}
           activeOrgId={activeOrgId}
           canManage={canManage}
           onRefresh={() => loadAll()}
@@ -398,7 +435,15 @@ export function AiCenterView({
 /* ----------------------------------------------------------
  * 1. DASHBOARD DE IA
  * --------------------------------------------------------*/
-function AiDashboardTab({ dashboard, providers }: { dashboard: any; providers: any[] }) {
+function AiDashboardTab({
+  dashboard,
+  providers,
+  onNavigateTab,
+}: {
+  dashboard: any;
+  providers: any[];
+  onNavigateTab?: (tab: AiTabId) => void;
+}) {
   const s = dashboard?.summary || {
     totalRequests: 0,
     requestsToday: 0,
@@ -487,9 +532,20 @@ function AiDashboardTab({ dashboard, providers }: { dashboard: any; providers: a
         </div>
 
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3">
-          <h3 className="font-bold text-white text-sm flex items-center gap-2">
-            <Activity className="w-4 h-4 text-cyan-400" /> Uso por Departamento & Provedor
-          </h3>
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-bold text-white text-sm flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-400" /> Uso por Departamento & Provedor
+            </h3>
+            {onNavigateTab && (
+              <button
+                type="button"
+                onClick={() => onNavigateTab('ai-costs')}
+                className="text-xs font-medium text-cyan-400 hover:text-cyan-300 flex items-center gap-1 whitespace-nowrap shrink-0 transition-colors"
+              >
+                Consumo e Custos <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
           {(dashboard?.byDepartment || []).length === 0 ? (
             <div className="p-6 rounded-xl bg-slate-950 border border-slate-800 text-center text-xs text-slate-400">
               Nenhuma chamada de IA registrada ainda nesta organização. Os contadores reais aparecerão após o primeiro uso.
@@ -2092,6 +2148,8 @@ function AiCostsTab({
   filters,
   onChangeFilters,
   onInspectLog,
+  onNavigateTab,
+  loading,
   activeOrgId,
   canManage,
   onRefresh,
@@ -2738,6 +2796,9 @@ function AiCostsTab({
             costPolicy={costPolicy}
             summary={summary}
             alerts={alerts}
+            loading={loading}
+            onInspectLog={onInspectLog}
+            onNavigateTab={onNavigateTab}
           />
 
           {/* 12 KPIs Completos (USD, BRL, Tokens, Cache, Reasoning, Projeção, Latência, Sucesso) */}

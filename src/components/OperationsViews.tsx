@@ -17,9 +17,22 @@ import {
   Send,
   AlertTriangle,
   RefreshCw,
+  Edit3,
+  ExternalLink,
+  MessageSquare,
+  X,
+  Trash2,
+  Archive,
 } from 'lucide-react';
 import { apiFetch, formatCurrencyBRL } from '../lib/api';
 import { DepartmentAiWidget } from './AiCenterViews';
+import {
+  IncidentsManagementPanel,
+  StorageAssetsPanel,
+  StrategyPersistentSection,
+} from './ProductionModulesViews';
+import { AdIntegrationsVaultPanel } from './AdIntegrationsVaultPanel';
+import { PlanEntitlementsBanner } from './PlanEntitlementsBanner';
 
 export function DashboardView({ clients, leads, projects, financeSummary, performanceData, currentOrg }: any) {
   return (
@@ -75,10 +88,28 @@ export function ProjectsView({
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newBriefing, setNewBriefing] = useState({ title: '', objective: '', targetAudience: '' });
   const [newTime, setNewTime] = useState({ description: '', duration: 2 });
+  const [showNewProject, setShowNewProject] = useState(false);
+  const [projectForm, setProjectForm] = useState({
+    clientId: clients[0]?.id || '',
+    name: '',
+    projectType: 'Landing Page',
+    dueDate: new Date(Date.now() + 21 * 86400000).toISOString().slice(0, 10),
+    priority: 'Alta',
+  });
+  const [newDeliverable, setNewDeliverable] = useState({ name: '', type: 'Landing Page', version: 'v1.0' });
+  const [newApprovalTitle, setNewApprovalTitle] = useState('');
+  const [taskCommentDrafts, setTaskCommentDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setSelectedProjectId((prev) => (projects.some((p: any) => p.id === prev) ? prev : (projects[0]?.id || '')));
   }, [activeOrgId, projects]);
+
+  useEffect(() => {
+    setProjectForm((prev) => ({
+      ...prev,
+      clientId: clients.some((c: any) => c.id === prev.clientId) ? prev.clientId : (clients[0]?.id || ''),
+    }));
+  }, [activeOrgId, clients]);
 
   const activeProject = projects.find((p: any) => p.id === selectedProjectId) || projects[0];
   const prjTasks = tasks.filter((t: any) => t.projectId === activeProject?.id);
@@ -87,6 +118,27 @@ export function ProjectsView({
   const prjApprovals = approvals.filter((a: any) => a.projectId === activeProject?.id);
   const prjTime = timeEntries.filter((t: any) => t.projectId === activeProject?.id);
 
+  const handleCreateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const created = await apiFetch<any>('/api/projects', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...projectForm,
+          clientId: projectForm.clientId || clients[0]?.id,
+          organizationId: activeOrgId,
+        }),
+      });
+      setShowNewProject(false);
+      setProjectForm((prev) => ({ ...prev, name: '' }));
+      if (created?.id) setSelectedProjectId(created.id);
+      onNotify(`Projeto "${created?.name || projectForm.name}" criado.`);
+      onRefresh();
+    } catch (err: any) {
+      onNotify(err.message, true);
+    }
+  };
+
   const handleTaskStatus = async (taskId: string, status: string) => {
     try {
       const res = await apiFetch<any>(`/api/tasks/${taskId}`, {
@@ -94,6 +146,22 @@ export function ProjectsView({
         body: JSON.stringify({ status }),
       });
       onNotify(`Tarefa atualizada. Progresso do projeto recalculado: ${res.projectProgress}%`);
+      onRefresh();
+    } catch (err: any) {
+      onNotify(err.message, true);
+    }
+  };
+
+  const handleAddTaskComment = async (taskId: string) => {
+    const content = (taskCommentDrafts[taskId] || '').trim();
+    if (!content) return;
+    try {
+      await apiFetch(`/api/tasks/${taskId}/comments`, {
+        method: 'POST',
+        body: JSON.stringify({ body: content, organizationId: activeOrgId }),
+      });
+      setTaskCommentDrafts((prev) => ({ ...prev, [taskId]: '' }));
+      onNotify('Comentário adicionado à tarefa.');
       onRefresh();
     } catch (err: any) {
       onNotify(err.message, true);
@@ -110,6 +178,48 @@ export function ProjectsView({
       });
       setNewTaskTitle('');
       onNotify('Tarefa adicionada ao projeto.');
+      onRefresh();
+    } catch (err: any) {
+      onNotify(err.message, true);
+    }
+  };
+
+  const handleCreateDeliverable = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeProject || !newDeliverable.name.trim()) return;
+    try {
+      await apiFetch('/api/deliverables', {
+        method: 'POST',
+        body: JSON.stringify({
+          organizationId: activeOrgId,
+          projectId: activeProject.id,
+          ...newDeliverable,
+        }),
+      });
+      setNewDeliverable({ name: '', type: activeProject.projectType || 'Landing Page', version: 'v1.0' });
+      onNotify('Entregável cadastrado no projeto.');
+      onRefresh();
+    } catch (err: any) {
+      onNotify(err.message, true);
+    }
+  };
+
+  const handleCreateApproval = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeProject || !newApprovalTitle.trim()) return;
+    try {
+      await apiFetch('/api/approvals', {
+        method: 'POST',
+        body: JSON.stringify({
+          organizationId: activeOrgId,
+          projectId: activeProject.id,
+          clientId: activeProject.clientId,
+          title: newApprovalTitle.trim(),
+          version: 'v1.0',
+        }),
+      });
+      setNewApprovalTitle('');
+      onNotify('Solicitação de aprovação enviada ao Portal do Cliente.');
       onRefresh();
     } catch (err: any) {
       onNotify(err.message, true);
@@ -163,14 +273,64 @@ export function ProjectsView({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-          <FolderKanban className="w-6 h-6 text-cyan-400" /> NER Projects • Operação, Tarefas & Entregáveis
-        </h2>
-        <p className="text-sm text-slate-400">
-          Projetos alimentados por contratos do NER Digital Studio com cálculo automático de progresso.
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+            <FolderKanban className="w-6 h-6 text-cyan-400" /> NER Projects • Operação, Tarefas & Entregáveis
+          </h2>
+          <p className="text-sm text-slate-400">
+            Projetos manuais ou gerados por contratos com entregáveis, aprovações versionadas e comentários por tarefa.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowNewProject((v) => !v)}
+          className="px-4 py-2 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold flex items-center gap-1.5"
+        >
+          <Plus className="w-4 h-4" /> Novo Projeto
+        </button>
       </div>
+
+      {showNewProject && (
+        <form onSubmit={handleCreateProject} className="bg-slate-900/80 border border-cyan-500/30 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-5 gap-3">
+          <select
+            value={projectForm.clientId}
+            onChange={(e) => setProjectForm({ ...projectForm, clientId: e.target.value })}
+            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white"
+          >
+            {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <input
+            type="text"
+            required
+            placeholder="Nome do projeto"
+            value={projectForm.name}
+            onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
+            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white"
+          />
+          <select
+            value={projectForm.projectType}
+            onChange={(e) => setProjectForm({ ...projectForm, projectType: e.target.value })}
+            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white"
+          >
+            <option value="Landing Page">Landing Page</option>
+            <option value="Site">Site</option>
+            <option value="E-commerce">E-commerce</option>
+            <option value="Software">Software</option>
+            <option value="Growth & Mídia">Growth & Mídia</option>
+          </select>
+          <input
+            type="date"
+            required
+            value={projectForm.dueDate}
+            onChange={(e) => setProjectForm({ ...projectForm, dueDate: e.target.value })}
+            className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white"
+          />
+          <button type="submit" className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold">
+            Criar Projeto
+          </button>
+        </form>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="space-y-3">
@@ -223,62 +383,121 @@ export function ProjectsView({
               </form>
               <div className="space-y-2">
                 {prjTasks.map((t: any) => (
-                  <div key={t.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3 text-xs">
-                    <div>
-                      <div className="font-medium text-white">{t.title}</div>
-                      <div className="text-[10px] text-slate-400">Prioridade: {t.priority} • Est: {t.estimatedHours}h</div>
+                  <div key={t.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-xs">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-white">{t.title}</div>
+                        <div className="text-[10px] text-slate-400">
+                          Prioridade: {t.priority} • Est: {t.estimatedHours}h • Resp: {t.assignee || 'Equipe'}
+                        </div>
+                      </div>
+                      <select
+                        value={t.status}
+                        onChange={(e) => handleTaskStatus(t.id, e.target.value)}
+                        className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-300"
+                      >
+                        <option value="Backlog">Backlog</option>
+                        <option value="A fazer">A fazer</option>
+                        <option value="Em andamento">Em andamento</option>
+                        <option value="Em revisão">Em revisão</option>
+                        <option value="Concluída">Concluída</option>
+                      </select>
                     </div>
-                    <select
-                      value={t.status}
-                      onChange={(e) => handleTaskStatus(t.id, e.target.value)}
-                      className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-cyan-300"
-                    >
-                      <option value="Backlog">Backlog</option>
-                      <option value="A fazer">A fazer</option>
-                      <option value="Em andamento">Em andamento</option>
-                      <option value="Em revisão">Em revisão</option>
-                      <option value="Concluída">Concluída</option>
-                    </select>
+                    {Array.isArray(t.comments) && t.comments.length > 0 && (
+                      <div className="pl-2 border-l border-slate-800 space-y-1">
+                        {t.comments.map((cm: any) => (
+                          <div key={cm.id} className="text-[11px] text-slate-300">
+                            <span className="text-cyan-400 font-semibold">{cm.authorName}:</span> {cm.body || cm.content}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex gap-1.5 pt-1">
+                      <input
+                        type="text"
+                        placeholder="Adicionar comentário..."
+                        value={taskCommentDrafts[t.id] || ''}
+                        onChange={(e) => setTaskCommentDrafts({ ...taskCommentDrafts, [t.id]: e.target.value })}
+                        className="flex-1 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-[11px] text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleAddTaskComment(t.id)}
+                        className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 flex items-center gap-1"
+                      >
+                        <MessageSquare className="w-3 h-3" /> Enviar
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3">
-                <h4 className="font-bold text-white text-sm">Entregáveis do Template ({prjDeliverables.length})</h4>
-                {prjDeliverables.map((d: any) => (
-                  <div key={d.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs flex justify-between items-center">
-                    <div>
-                      <div className="text-white font-medium">{d.name}</div>
-                      <div className="text-[10px] text-slate-400">{d.type} • {d.version}</div>
-                    </div>
-                    <span className="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 text-[10px]">{d.status}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3">
-                <h4 className="font-bold text-white text-sm">Aprovações Vinculadas à Versão ({prjApprovals.length})</h4>
-                {prjApprovals.map((a: any) => (
-                  <div key={a.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
-                    <div className="flex justify-between">
-                      <span className="font-medium text-white">{a.title} ({a.version})</span>
-                      <span className="text-[10px] text-cyan-400">{a.status}</span>
-                    </div>
-                    {a.status === 'Pendente' && (
-                      <div className="flex gap-2">
-                        <button onClick={() => handleApprovalDecision(a, 'Aprovado')} className="px-2 py-1 rounded bg-emerald-600/20 text-emerald-300 text-[10px]">
-                          Aprovar
-                        </button>
-                        <button onClick={() => handleApprovalDecision(a, 'Alterações solicitadas')} className="px-2 py-1 rounded bg-amber-600/20 text-amber-300 text-[10px]">
-                          Solicitar Ajuste
-                        </button>
+              <form onSubmit={handleCreateDeliverable} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3">
+                <h4 className="font-bold text-white text-sm">Entregáveis ({prjDeliverables.length})</h4>
+                <div className="space-y-2">
+                  {prjDeliverables.map((d: any) => (
+                    <div key={d.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs flex justify-between items-center">
+                      <div>
+                        <div className="text-white font-medium">{d.name}</div>
+                        <div className="text-[10px] text-slate-400">{d.type} • {d.version}</div>
                       </div>
-                    )}
-                  </div>
-                ))}
-              </div>
+                      <span className="px-2 py-0.5 rounded bg-slate-800 text-cyan-300 text-[10px]">{d.status}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Novo entregável (ex: Copy LP v1)"
+                    value={newDeliverable.name}
+                    onChange={(e) => setNewDeliverable({ ...newDeliverable, name: e.target.value })}
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                  />
+                  <button type="submit" className="px-3 py-1.5 rounded-lg bg-cyan-600 text-white text-xs font-semibold">
+                    Adicionar
+                  </button>
+                </div>
+              </form>
+
+              <form onSubmit={handleCreateApproval} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3">
+                <h4 className="font-bold text-white text-sm">Aprovações Vinculadas à Versão ({prjApprovals.length})</h4>
+                <div className="space-y-2">
+                  {prjApprovals.map((a: any) => (
+                    <div key={a.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-xs space-y-2">
+                      <div className="flex justify-between">
+                        <span className="font-medium text-white">{a.title} ({a.version})</span>
+                        <span className="text-[10px] text-cyan-400">{a.status}</span>
+                      </div>
+                      {a.status === 'Pendente' && (
+                        <div className="flex gap-2">
+                          <button type="button" onClick={() => handleApprovalDecision(a, 'Aprovado')} className="px-2 py-1 rounded bg-emerald-600/20 text-emerald-300 text-[10px]">
+                            Aprovar
+                          </button>
+                          <button type="button" onClick={() => handleApprovalDecision(a, 'Alterações solicitadas')} className="px-2 py-1 rounded bg-amber-600/20 text-amber-300 text-[10px]">
+                            Solicitar Ajuste
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <input
+                    type="text"
+                    required
+                    placeholder="Enviar item para aprovação do cliente..."
+                    value={newApprovalTitle}
+                    onChange={(e) => setNewApprovalTitle(e.target.value)}
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                  />
+                  <button type="submit" className="px-3 py-1.5 rounded-lg bg-cyan-600 text-white text-xs font-semibold">
+                    Solicitar
+                  </button>
+                </div>
+              </form>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -422,7 +641,7 @@ export function CreativeView({ creatives, clients, activeOrgId, onRefresh, onNot
   );
 }
 
-export function PerformanceView({ performanceData, onRefresh, onNotify }: any) {
+export function PerformanceView({ performanceData, activeOrgId, canManageVault = false, onRefresh, onNotify }: any) {
   const accounts = performanceData?.adAccounts || [];
   const recommendations = performanceData?.recommendations || [];
 
@@ -461,7 +680,7 @@ export function PerformanceView({ performanceData, onRefresh, onNotify }: any) {
               </div>
               <span
                 className={`text-[10px] px-2.5 py-1 rounded-full border ${
-                  acc.connectionStatus === 'Conectado (OAuth)'
+                  String(acc.connectionStatus || '').startsWith('Conectado')
                     ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
                     : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
                 }`}
@@ -483,6 +702,14 @@ export function PerformanceView({ performanceData, onRefresh, onNotify }: any) {
           </div>
         ))}
       </div>
+
+      {canManageVault && (
+        <AdIntegrationsVaultPanel
+          activeOrgId={activeOrgId}
+          onRefresh={onRefresh}
+          onNotify={onNotify}
+        />
+      )}
 
       <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3">
         <h3 className="font-bold text-white text-sm">Recomendações com Validação Estatística</h3>
@@ -508,6 +735,17 @@ export function PerformanceView({ performanceData, onRefresh, onNotify }: any) {
 export function WebView({ webPages, clients, activeOrgId, onRefresh, onNotify }: any) {
   const [form, setForm] = useState({ clientId: clients[0]?.id || '', title: '', slug: '', pageType: 'Landing Page Produto' });
   const [leadTest, setLeadTest] = useState({ pageId: webPages[0]?.id || '', name: 'Lead Teste LP', email: 'lead.lp@empresa.com' });
+  const [editingPage, setEditingPage] = useState<any | null>(null);
+  const [editorState, setEditorState] = useState({
+    title: '',
+    domain: '',
+    seoTitle: '',
+    seoDescription: '',
+    whatsappNumber: '',
+    sections: [] as Array<{ id: string; type: string; headline: string; subheadline: string; ctaText: string }>,
+    newSectionType: 'Benefícios',
+    newSectionHeadline: '',
+  });
 
   useEffect(() => {
     setForm((prev) => ({
@@ -522,6 +760,65 @@ export function WebView({ webPages, clients, activeOrgId, onRefresh, onNotify }:
       pageId: webPages.some((p: any) => p.id === prev.pageId) ? prev.pageId : (webPages[0]?.id || ''),
     }));
   }, [activeOrgId, webPages]);
+
+  const openEditor = (wp: any) => {
+    setEditingPage(wp);
+    const normalizedSections =
+      Array.isArray(wp.sections) && wp.sections.length > 0
+        ? wp.sections.map((s: any, idx: number) =>
+            typeof s === 'string'
+              ? { id: `sec-${idx}`, type: s, headline: s, subheadline: '', ctaText: 'Solicitar Contato' }
+              : {
+                  id: s.id || `sec-${idx}`,
+                  type: s.type || 'Seção',
+                  headline: s.headline || '',
+                  subheadline: s.subheadline || '',
+                  ctaText: s.ctaText || 'Solicitar Contato',
+                }
+          )
+        : [
+            {
+              id: 'sec-hero',
+              type: 'Hero',
+              headline: wp.title || 'Oferta Principal',
+              subheadline: 'Descrição objetiva da proposta de valor.',
+              ctaText: 'Solicitar Diagnóstico',
+            },
+          ];
+    setEditorState({
+      title: wp.title || '',
+      domain: wp.domain || '',
+      seoTitle: wp.seoTitle || wp.title || '',
+      seoDescription: wp.seoDescription || '',
+      whatsappNumber: wp.whatsappNumber || '',
+      sections: normalizedSections,
+      newSectionType: 'Benefícios',
+      newSectionHeadline: '',
+    });
+  };
+
+  const handleSaveEditor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPage) return;
+    try {
+      await apiFetch(`/api/web/pages/${editingPage.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          title: editorState.title,
+          domain: editorState.domain,
+          seoTitle: editorState.seoTitle,
+          seoDescription: editorState.seoDescription,
+          whatsappNumber: editorState.whatsappNumber,
+          sections: editorState.sections,
+        }),
+      });
+      setEditingPage(null);
+      onNotify('Configurações de seções, SEO, WhatsApp e domínio salvas.');
+      onRefresh();
+    } catch (err: any) {
+      onNotify(err.message, true);
+    }
+  };
 
   const handleCreatePage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -540,9 +837,19 @@ export function WebView({ webPages, clients, activeOrgId, onRefresh, onNotify }:
 
   const handlePublish = async (page: any) => {
     try {
-      const nextStatus = page.status === 'Publicado' ? 'Em revisão' : 'Publicado';
+      const nextStatus = page.status === 'Publicado' ? 'Rascunho' : 'Publicado';
       await apiFetch(`/api/web/pages/${page.id}`, { method: 'PATCH', body: JSON.stringify({ status: nextStatus }) });
       onNotify(`Página alterada para ${nextStatus}.`);
+      onRefresh();
+    } catch (err: any) {
+      onNotify(err.message, true);
+    }
+  };
+
+  const handleArchivePage = async (id: string) => {
+    try {
+      await apiFetch(`/api/archive/web-pages/${id}`, { method: 'PATCH', body: JSON.stringify({ archived: true }) });
+      onNotify('Página arquivada com auditoria.');
       onRefresh();
     } catch (err: any) {
       onNotify(err.message, true);
@@ -565,14 +872,24 @@ export function WebView({ webPages, clients, activeOrgId, onRefresh, onNotify }:
     }
   };
 
+  const activePages = (webPages || []).filter((w: any) => !w.archivedAt);
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-          <Globe className="w-6 h-6 text-cyan-400" /> NER Web • Landing Pages, Sites & Captura Integrada
+          <Globe className="w-6 h-6 text-cyan-400" /> NER Web • Landing Pages, Sites & Editor SEO/SSR
         </h2>
-        <p className="text-sm text-slate-400">Builder com versionamento, SEO e captura real de leads integrada ao CRM e NER Tracking.</p>
+        <p className="text-sm text-slate-400">
+          Editor de seções, meta title/description, WhatsApp, domínio personalizado, publicação real em <code className="text-cyan-400">/p/:slug</code> e captura de leads.
+        </p>
       </div>
+
+      <PlanEntitlementsBanner
+        activeOrgId={activeOrgId}
+        focus="pages"
+        refreshTrigger={activePages.length}
+      />
 
       <form onSubmit={handleCreatePage} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 grid grid-cols-1 md:grid-cols-5 gap-3">
         <select value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white">
@@ -590,34 +907,210 @@ export function WebView({ webPages, clients, activeOrgId, onRefresh, onNotify }:
       </form>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {webPages.map((wp: any) => (
+        {activePages.map((wp: any) => (
           <div key={wp.id} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3">
-            <div className="flex justify-between items-start">
+            <div className="flex justify-between items-start gap-2">
               <div>
                 <h3 className="font-bold text-white text-base">{wp.title}</h3>
-                <p className="text-xs font-mono text-cyan-400">{wp.domain} • /{wp.slug} ({wp.version})</p>
+                <p className="text-xs font-mono text-cyan-400">{wp.domain} • /p/{wp.slug} ({wp.version})</p>
+                {wp.seoTitle && <p className="text-[11px] text-slate-400 mt-0.5">SEO: {wp.seoTitle}</p>}
               </div>
-              <span className="px-2.5 py-1 rounded-full bg-slate-800 text-xs text-emerald-300">{wp.status}</span>
+              <span className={`px-2.5 py-1 rounded-full text-xs ${wp.status === 'Publicado' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-amber-300'}`}>
+                {wp.status}
+              </span>
             </div>
-            <div className="text-xs text-slate-400 flex justify-between">
-              <span>Leads capturados: <strong className="text-white">{wp.leadsCaptured}</strong></span>
-              <span>SSL: {wp.sslStatus}</span>
+            <div className="text-xs text-slate-400 flex flex-wrap gap-3 justify-between">
+              <span>Visitas: <strong className="text-white">{wp.visits || 0}</strong> • Leads: <strong className="text-white">{wp.leadsCaptured}</strong></span>
+              <span>Seções: <strong className="text-slate-200">{(wp.sections || []).length}</strong> • WhatsApp: {wp.whatsappNumber || '—'}</span>
             </div>
-            <div className="flex justify-end">
-              <button onClick={() => handlePublish(wp)} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200">
-                {wp.status === 'Publicado' ? 'Mover para Revisão' : 'Publicar Página'}
+            <div className="flex flex-wrap justify-end gap-2 pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => openEditor(wp)}
+                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-cyan-300 flex items-center gap-1"
+              >
+                <Edit3 className="w-3.5 h-3.5" /> Editar Seções & SEO
+              </button>
+              {wp.status === 'Publicado' && (
+                <a
+                  href={`/p/${encodeURIComponent(wp.slug)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-xs text-emerald-300 flex items-center gap-1"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Preview SSR
+                </a>
+              )}
+              <button onClick={() => handlePublish(wp)} className="px-3 py-1.5 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-xs text-cyan-200">
+                {wp.status === 'Publicado' ? 'Despublicar' : 'Publicar'}
+              </button>
+              <button onClick={() => handleArchivePage(wp.id)} className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-400">
+                <Archive className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
         ))}
       </div>
 
-      {webPages.length > 0 && (
+      {editingPage && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <form onSubmit={handleSaveEditor} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="font-bold text-white text-base">Editor NER Web • /p/{editingPage.slug}</h3>
+              <button type="button" onClick={() => setEditingPage(null)} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="text-slate-400 block mb-1">Título da Página</label>
+                <input type="text" required value={editorState.title} onChange={(e) => setEditorState({ ...editorState, title: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white" />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">Domínio Personalizado</label>
+                <input type="text" value={editorState.domain} onChange={(e) => setEditorState({ ...editorState, domain: e.target.value })} placeholder="lp.cliente.com.br" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono" />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">SEO Meta Title</label>
+                <input type="text" value={editorState.seoTitle} onChange={(e) => setEditorState({ ...editorState, seoTitle: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white" />
+              </div>
+              <div>
+                <label className="text-slate-400 block mb-1">WhatsApp CTA (DDI+DDD+Número)</label>
+                <input type="text" value={editorState.whatsappNumber} onChange={(e) => setEditorState({ ...editorState, whatsappNumber: e.target.value })} placeholder="5511999999999" className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white font-mono" />
+              </div>
+            </div>
+
+            <div className="text-xs">
+              <label className="text-slate-400 block mb-1">SEO Meta Description</label>
+              <textarea rows={2} value={editorState.seoDescription} onChange={(e) => setEditorState({ ...editorState, seoDescription: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-white" />
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <label className="text-slate-400 block">Seções Renderizadas na Página ({editorState.sections.length})</label>
+              <div className="space-y-2">
+                {editorState.sections.map((sec, idx) => (
+                  <div key={sec.id || idx} className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={sec.type}
+                        placeholder="Tipo (Hero, FAQ...)"
+                        onChange={(e) => {
+                          const next = [...editorState.sections];
+                          next[idx] = { ...next[idx], type: e.target.value };
+                          setEditorState({ ...editorState, sections: next });
+                        }}
+                        className="w-32 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-cyan-300 font-mono"
+                      />
+                      <input
+                        type="text"
+                        value={sec.headline}
+                        placeholder="Headline da seção"
+                        onChange={(e) => {
+                          const next = [...editorState.sections];
+                          next[idx] = { ...next[idx], headline: e.target.value };
+                          setEditorState({ ...editorState, sections: next });
+                        }}
+                        className="flex-1 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-white font-semibold"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setEditorState({
+                            ...editorState,
+                            sections: editorState.sections.filter((_, i) => i !== idx),
+                          })
+                        }
+                        className="p-1.5 rounded bg-rose-600/20 text-rose-300"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                      <input
+                        type="text"
+                        value={sec.subheadline}
+                        placeholder="Subheadline / descrição"
+                        onChange={(e) => {
+                          const next = [...editorState.sections];
+                          next[idx] = { ...next[idx], subheadline: e.target.value };
+                          setEditorState({ ...editorState, sections: next });
+                        }}
+                        className="md:col-span-2 bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-300"
+                      />
+                      <input
+                        type="text"
+                        value={sec.ctaText}
+                        placeholder="Texto CTA"
+                        onChange={(e) => {
+                          const next = [...editorState.sections];
+                          next[idx] = { ...next[idx], ctaText: e.target.value };
+                          setEditorState({ ...editorState, sections: next });
+                        }}
+                        className="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-emerald-300"
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  type="text"
+                  placeholder="Tipo (ex: Prova Social)"
+                  value={editorState.newSectionType}
+                  onChange={(e) => setEditorState({ ...editorState, newSectionType: e.target.value })}
+                  className="w-36 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                />
+                <input
+                  type="text"
+                  placeholder="Headline da nova seção..."
+                  value={editorState.newSectionHeadline}
+                  onChange={(e) => setEditorState({ ...editorState, newSectionHeadline: e.target.value })}
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!editorState.newSectionHeadline.trim()) return;
+                    setEditorState({
+                      ...editorState,
+                      sections: [
+                        ...editorState.sections,
+                        {
+                          id: `sec-${Date.now()}`,
+                          type: editorState.newSectionType.trim() || 'Seção',
+                          headline: editorState.newSectionHeadline.trim(),
+                          subheadline: '',
+                          ctaText: 'Solicitar Contato',
+                        },
+                      ],
+                      newSectionHeadline: '',
+                    });
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 text-cyan-300 font-semibold"
+                >
+                  + Seção
+                </button>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
+              <button type="button" onClick={() => setEditingPage(null)} className="px-4 py-2 rounded-lg bg-slate-800 text-xs text-slate-300">
+                Cancelar
+              </button>
+              <button type="submit" className="px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold">
+                Salvar Alterações
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {activePages.length > 0 && (
         <form onSubmit={handleSimulateLeadCapture} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-3">
           <h4 className="font-bold text-white text-sm">Testar Captura de Formulário Web → CRM + NER Tracking</h4>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <select value={leadTest.pageId || webPages[0]?.id} onChange={(e) => setLeadTest({ ...leadTest, pageId: e.target.value })} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white">
-              {webPages.map((w: any) => <option key={w.id} value={w.id}>{w.title}</option>)}
+            <select value={leadTest.pageId || activePages[0]?.id} onChange={(e) => setLeadTest({ ...leadTest, pageId: e.target.value })} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white">
+              {activePages.map((w: any) => <option key={w.id} value={w.id}>{w.title}</option>)}
             </select>
             <input type="text" required value={leadTest.name} onChange={(e) => setLeadTest({ ...leadTest, name: e.target.value })} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white" />
             <input type="email" required value={leadTest.email} onChange={(e) => setLeadTest({ ...leadTest, email: e.target.value })} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white" />
@@ -937,9 +1430,11 @@ export function ClientPortalView({ projects, approvals, receivables, tickets, cl
   );
 }
 
-export function OperationsBillingView({ operations, billing, plans, activeOrgId, onRefresh, onNotify }: any) {
+export function OperationsBillingView({ operations, billing, plans, clients = [], activeOrgId, onRefresh, onNotify }: any) {
   const [selectedPlanCode, setSelectedPlanCode] = useState(plans[4]?.code || plans[0]?.code || 'NER_BUSINESS_PRO');
   const [webhookEventId, setWebhookEventId] = useState(`evt_stripe_demo_${Date.now().toString().slice(-5)}`);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [portalUrl, setPortalUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (plans.length > 0 && !plans.some((p: any) => p.code === selectedPlanCode)) {
@@ -949,11 +1444,47 @@ export function OperationsBillingView({ operations, billing, plans, activeOrgId,
 
   const handleCheckout = async () => {
     try {
-      const res = await apiFetch<any>('/api/billing/checkout', {
+      const res = await apiFetch<any>('/api/billing/checkout-live', {
         method: 'POST',
         body: JSON.stringify({ organizationId: activeOrgId, planCode: selectedPlanCode }),
       });
-      onNotify(`Checkout iniciado (${res.checkoutSessionId}). Status mantido em "${res.subscription.status}" até confirmação real via webhook.`);
+      if (res.checkoutUrl) {
+        setCheckoutUrl(res.checkoutUrl);
+      }
+      onNotify(
+        res.mode === 'stripe_live'
+          ? `Stripe Checkout Session criada (${res.checkoutSessionId}). Abra o link para concluir.`
+          : `Checkout registrado em modo aguardando STRIPE_SECRET_KEY (${res.checkoutSessionId}). Status: ${res.subscription?.status}.`
+      );
+      onRefresh();
+    } catch (err: any) {
+      onNotify(err.message, true);
+    }
+  };
+
+  const handleCustomerPortal = async () => {
+    try {
+      const res = await apiFetch<any>('/api/billing/portal', {
+        method: 'POST',
+        body: JSON.stringify({ organizationId: activeOrgId }),
+      });
+      const resolvedUrl = res.url || res.portalUrl;
+      if (resolvedUrl) {
+        setPortalUrl(resolvedUrl);
+        onNotify('Sessão do Portal do Assinante Stripe gerada.');
+      }
+    } catch (err: any) {
+      onNotify(err.message, true);
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    try {
+      const res = await apiFetch<any>('/api/billing/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ organizationId: activeOrgId }),
+      });
+      onNotify(`Assinatura cancelada (${res.subscription?.status}). Entitlements atualizados.`);
       onRefresh();
     } catch (err: any) {
       onNotify(err.message, true);
@@ -989,12 +1520,18 @@ export function OperationsBillingView({ operations, billing, plans, activeOrgId,
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-          <Server className="w-6 h-6 text-cyan-400" /> NER Operations & Billing (SaaS + Stripe Webhooks)
+          <Server className="w-6 h-6 text-cyan-400" /> NER Operations, Billing (Stripe), Incidentes & Storage
         </h2>
         <p className="text-sm text-slate-400">
-          Saúde operacional, prontidão de variáveis de ambiente e ativação transacional de assinaturas via webhook assinado.
+          Saúde operacional, prontidão real de credenciais, Stripe Checkout/Portal/Webhooks, gestão de incidentes e storage de arquivos.
         </p>
       </div>
+
+      <PlanEntitlementsBanner
+        activeOrgId={activeOrgId}
+        focus="all"
+        refreshTrigger={billing?.subscription?.updatedAt ? billing.subscription.updatedAt.length : 0}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-4">
@@ -1011,7 +1548,7 @@ export function OperationsBillingView({ operations, billing, plans, activeOrgId,
                   <div key={item.name} className="flex justify-between p-2.5 rounded-lg bg-slate-950 border border-slate-800">
                     <span className="text-slate-200">{item.name}</span>
                     <span className={item.configured ? 'text-emerald-400' : 'text-amber-400'}>
-                      {item.configured ? 'Configurado (Env)' : 'Pendente de Credenciais'}
+                      {item.statusLabel || (item.configured ? 'Configurado (Env)' : 'BLOQUEADO POR CREDENCIAIS')}
                     </span>
                   </div>
                 ))}
@@ -1023,7 +1560,7 @@ export function OperationsBillingView({ operations, billing, plans, activeOrgId,
         <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-bold text-white text-sm flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-cyan-400" /> Assinatura SaaS & Entitlements
+              <CreditCard className="w-4 h-4 text-cyan-400" /> Assinatura SaaS Stripe & Entitlements
             </h3>
             <span className="px-2.5 py-1 rounded-full bg-cyan-500/15 text-cyan-300 text-xs font-mono">
               {sub?.status || 'none'}
@@ -1031,27 +1568,53 @@ export function OperationsBillingView({ operations, billing, plans, activeOrgId,
           </div>
           <div className="text-xs bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
             <div>Plano Atual: <strong className="text-white">{sub?.planName || 'Nenhum'}</strong></div>
-            <div>Entitlement Ativo: <strong className={entitlements?.isEntitled ? 'text-emerald-400' : 'text-rose-400'}>{entitlements?.isEntitled ? 'Liberado' : 'Bloqueado / Pendente'}</strong></div>
-            <div>Uso vs Limite: Usuários {entitlements?.usage?.users}/{entitlements?.limits?.users} • Sites {entitlements?.usage?.sites}/{entitlements?.limits?.sites}</div>
+            <div>
+              Entitlement Ativo:{' '}
+              <strong className={entitlements?.isEntitled ? 'text-emerald-400' : 'text-rose-400'}>
+                {entitlements?.isEntitled ? 'Liberado' : `Bloqueado (${entitlements?.reason || 'Pendente'})`}
+              </strong>
+            </div>
+            <div className="font-mono text-[11px] text-slate-300">
+              Usuários: {entitlements?.usage?.users ?? 0}/{entitlements?.limits?.users ?? 0} • LPs: {entitlements?.usage?.landingPages ?? 0}/{entitlements?.limits?.landingPages ?? 0} • Sites: {entitlements?.usage?.sites ?? 0}/{entitlements?.limits?.sites ?? 0} • Storage: {entitlements?.limits?.storageGb ?? 0}GB
+            </div>
           </div>
 
           <div className="space-y-2 pt-2 border-t border-slate-800">
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <select value={selectedPlanCode} onChange={(e) => setSelectedPlanCode(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white">
                 {plans.map((p: any) => <option key={p.id} value={p.code}>{p.name} ({formatCurrencyBRL(p.recurringPrice)}/mês)</option>)}
               </select>
-              <button onClick={handleCheckout} className="px-3 py-2 rounded-lg bg-cyan-600 text-white text-xs font-semibold">
-                Iniciar Checkout
+              <button onClick={handleCheckout} className="px-3 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold">
+                Checkout Stripe
               </button>
+              <button onClick={handleCustomerPortal} className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs">
+                Portal Stripe
+              </button>
+              {sub && sub.status !== 'canceled' && (
+                <button onClick={handleCancelSubscription} className="px-3 py-2 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 text-xs">
+                  Cancelar
+                </button>
+              )}
             </div>
+
+            {checkoutUrl && (
+              <a href={checkoutUrl} target="_blank" rel="noreferrer" className="block text-xs text-emerald-400 underline font-mono">
+                Abrir sessão real do Stripe Checkout →
+              </a>
+            )}
+            {portalUrl && (
+              <a href={portalUrl} target="_blank" rel="noreferrer" className="block text-xs text-cyan-400 underline font-mono">
+                Abrir Portal do Assinante Stripe →
+              </a>
+            )}
 
             <div className="flex flex-wrap gap-2 items-center pt-2">
               <input type="text" value={webhookEventId} onChange={(e) => setWebhookEventId(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white" />
-              <button onClick={() => handleSandboxWebhook('invoice.payment_succeeded')} className="px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 text-xs">
-                Simular Webhook Pago (HMAC)
+              <button onClick={() => handleSandboxWebhook('invoice.paid')} className="px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 text-xs">
+                Webhook invoice.paid
               </button>
               <button onClick={() => handleSandboxWebhook('invoice.payment_failed')} className="px-3 py-1.5 rounded-lg bg-rose-600/20 text-rose-300 text-xs">
-                Simular Falha
+                Webhook Falha
               </button>
             </div>
           </div>
@@ -1066,11 +1629,20 @@ export function OperationsBillingView({ operations, billing, plans, activeOrgId,
           </div>
         </div>
       </div>
+
+      <AdIntegrationsVaultPanel
+        activeOrgId={activeOrgId}
+        onRefresh={onRefresh}
+        onNotify={onNotify}
+      />
+
+      <IncidentsManagementPanel activeOrgId={activeOrgId} onNotify={onNotify} />
+      <StorageAssetsPanel activeOrgId={activeOrgId} clients={clients} onNotify={onNotify} />
     </div>
   );
 }
 
-export function StrategyView({ activeOrgId, onNotify }: any) {
+export function StrategyView({ activeOrgId, clients = [], projects = [], onNotify }: any) {
   const [prompt, setPrompt] = useState('Estruture um funil de aquisição B2B para SaaS com ticket médio de R$ 2.500/mês.');
   const [useStream, setUseStream] = useState(true);
   const [result, setResult] = useState<string | null>(null);
@@ -1152,14 +1724,17 @@ export function StrategyView({ activeOrgId, onNotify }: any) {
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
-          <Sparkles className="w-6 h-6 text-cyan-400" /> NER Strategy & IA (Centralized NER AI Gateway)
+          <Sparkles className="w-6 h-6 text-cyan-400" /> NER Strategy & IA (Planos Persistentes, OKRs & AI Gateway)
         </h2>
         <p className="text-sm text-slate-400">
-          Execução roteada pelo NER AI Gateway com suporte a streaming SSE, fallback automático, controle de custos e auditoria.
+          Planejamento estratégico persistido por organização/cliente/projeto com OKRs mensuráveis e co-piloto conectado ao NER AI Gateway.
         </p>
       </div>
 
+      <StrategyPersistentSection activeOrgId={activeOrgId} clients={clients} projects={projects} onNotify={onNotify} />
+
       <form onSubmit={handleGenerate} className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-4">
+        <div className="text-xs font-bold text-cyan-400 uppercase tracking-wider">Co-Piloto Estratégico (NER AI Gateway)</div>
         <textarea rows={4} required value={prompt} onChange={(e) => setPrompt(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white" />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">

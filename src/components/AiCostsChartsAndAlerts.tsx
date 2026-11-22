@@ -19,16 +19,20 @@ import {
 import {
   Activity,
   AlertTriangle,
+  ArrowUpDown,
   Calendar,
   Cpu,
   DollarSign,
+  Eye,
   Layers,
   RotateCcw,
+  Search,
   Server,
+  Settings,
   ShieldAlert,
   TrendingUp,
 } from 'lucide-react';
-import type { CostFilterState } from './AiCenterViews';
+import type { AiTabId, CostFilterState } from './AiCenterViews';
 
 const CHART_PALETTE = [
   '#06b6d4', // cyan-500
@@ -676,15 +680,24 @@ export function AiUsageRechartsSection({
   exchangeRate,
   filters,
   onChangeFilters,
+  loading = false,
+  onInspectLog,
+  onNavigateTab,
 }: {
   usageLogs: any[];
   exchangeRate: number;
   filters: CostFilterState;
   onChangeFilters: (next: CostFilterState) => void;
+  loading?: boolean;
+  onInspectLog?: (id: string) => void;
+  onNavigateTab?: (tab: AiTabId) => void;
 }) {
   const [metricMode, setMetricMode] = useState<'both' | 'cost' | 'costBrl' | 'tokens'>('both');
   const [timeGranularity, setTimeGranularity] = useState<'day' | 'week' | 'month'>('day');
-  const [breakdownTab, setBreakdownTab] = useState<'provider' | 'department' | 'model'>('provider');
+  const [breakdownTab, setBreakdownTab] = useState<'provider' | 'department' | 'model' | 'logs'>('provider');
+  const [tableSearch, setTableSearch] = useState('');
+  const [sortBy, setSortBy] = useState<'costUsd' | 'tokens' | 'requests'>('costUsd');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
 
   // Filtra client-side sobre aiGateway.usageLogs preservando irmãos para cross-filtering imediato
   const basePeriodLogs = useMemo(() => {
@@ -1030,8 +1043,39 @@ export function AiUsageRechartsSection({
     });
   };
 
+  const toggleDateZoom = (dateStr?: string) => {
+    if (!dateStr || timeGranularity !== 'day' || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return;
+    if (filters.period === 'custom' && filters.startDate === dateStr && filters.endDate === dateStr) {
+      onChangeFilters({ ...filters, period: 'all', startDate: '', endDate: '' });
+    } else {
+      onChangeFilters({ ...filters, period: 'custom', startDate: dateStr, endDate: dateStr });
+    }
+  };
+
+  const handleSortToggle = (col: 'costUsd' | 'tokens' | 'requests') => {
+    if (sortBy === col) {
+      setSortDir((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortBy(col);
+      setSortDir('desc');
+    }
+  };
+
+  const activePeriodLabel = useMemo(() => {
+    if (filters.period === 'custom') {
+      if (filters.startDate && filters.endDate && filters.startDate === filters.endDate) {
+        return `Dia ${filters.startDate}`;
+      }
+      return `${filters.startDate || 'Início'} a ${filters.endDate || 'Hoje'}`;
+    }
+    return datePresets.find((p) => p.id === filters.period)?.label || 'Todo histórico';
+  }, [filters.period, filters.startDate, filters.endDate]);
+
   const hasChartSelection =
-    filters.providerId !== 'all' || filters.department !== 'all' || filters.modelId !== 'all';
+    filters.providerId !== 'all' ||
+    filters.department !== 'all' ||
+    filters.modelId !== 'all' ||
+    (filters.period === 'custom' && Boolean(filters.startDate || filters.endDate));
 
   return (
     <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-5">
@@ -1040,11 +1084,14 @@ export function AiUsageRechartsSection({
         <div>
           <h4 className="font-bold text-white text-sm flex items-center gap-2">
             <Activity className="w-4 h-4 text-cyan-400" />
-            Gráficos Interativos de Consumo e Custos
+            Consumo e Custos — Gráficos Interativos
           </h4>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Segmentação interativa por provedor, departamento, modelo e série diária sobre os registros de{' '}
-            <span className="font-mono text-slate-300">aiGateway.usageLogs</span> ({filteredLogs.length} registros no recorte).
+          <p className="text-[11px] text-slate-400 mt-0.5 flex flex-wrap items-center gap-x-1.5">
+            <span>Fonte: <span className="font-mono text-slate-300">aiGateway.usageLogs</span></span>
+            <span aria-hidden="true">·</span>
+            <span className="font-mono tabular-nums text-slate-300">{filteredLogs.length} registro(s)</span>
+            <span aria-hidden="true">·</span>
+            <span>Período: <span className="text-cyan-300 font-medium">{activePeriodLabel}</span></span>
           </p>
         </div>
 
@@ -1186,6 +1233,15 @@ export function AiUsageRechartsSection({
       {hasChartSelection && (
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           <span className="text-slate-400">Filtros ativos via gráfico:</span>
+          {filters.period === 'custom' && (filters.startDate || filters.endDate) && (
+            <button
+              type="button"
+              onClick={() => onChangeFilters({ ...filters, period: 'all', startDate: '', endDate: '' })}
+              className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 font-mono whitespace-nowrap hover:bg-emerald-500/25 transition-colors"
+            >
+              Período: {activePeriodLabel} ×
+            </button>
+          )}
           {filters.providerId !== 'all' && (
             <button
               type="button"
@@ -1223,23 +1279,58 @@ export function AiUsageRechartsSection({
         </div>
       )}
 
-      {filteredLogs.length === 0 && (
-        <div className="px-4 py-3 rounded-xl bg-slate-950/90 border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <p className="text-slate-400">
-            Nenhum registro encontrado em <span className="font-mono text-slate-300">aiGateway.usageLogs</span> para o recorte atual. Os gráficos Recharts abaixo serão preenchidos automaticamente assim que novas chamadas forem executadas no NER AI Gateway.
-          </p>
-          {(filters.period !== 'all' || hasChartSelection) && (
-            <button
-              type="button"
-              onClick={resetChartFilters}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-colors"
+      {loading && filteredLogs.length === 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-pulse">
+          {[0, 1, 2, 3].map((idx) => (
+            <div
+              key={idx}
+              className="bg-slate-950 border border-slate-800 rounded-xl p-4 h-[330px] flex flex-col justify-between"
             >
-              <RotateCcw className="w-3.5 h-3.5" /> Exibir todo o histórico
-            </button>
-          )}
+              <div className="h-4 w-48 bg-slate-800/80 rounded" />
+              <div className="h-[240px] w-full bg-slate-900/80 rounded-lg" />
+            </div>
+          ))}
         </div>
       )}
 
+      {!loading && filteredLogs.length === 0 && (
+        <div className="px-4 py-3.5 rounded-xl bg-slate-950/90 border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="space-y-0.5">
+            <div className="font-semibold text-slate-200">
+              {Array.isArray(usageLogs) && usageLogs.length > 0
+                ? 'Nenhum registro corresponde aos filtros selecionados'
+                : 'Nenhum registro em aiGateway.usageLogs ainda'}
+            </div>
+            <p className="text-slate-400">
+              {Array.isArray(usageLogs) && usageLogs.length > 0
+                ? 'Amplie o período ou limpe os filtros de provedor, departamento ou modelo para visualizar os dados.'
+                : 'Assim que chamadas forem executadas pelo NER AI Gateway, os gráficos de tokens e custos estimados serão atualizados automaticamente.'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {(filters.period !== 'all' || hasChartSelection) && (
+              <button
+                type="button"
+                onClick={resetChartFilters}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold whitespace-nowrap shrink-0 transition-colors"
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> Exibir todo o histórico
+              </button>
+            )}
+            {(!Array.isArray(usageLogs) || usageLogs.length === 0) && onNavigateTab && (
+              <button
+                type="button"
+                onClick={() => onNavigateTab('ai-providers')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 text-xs font-semibold whitespace-nowrap shrink-0 transition-colors"
+              >
+                <Settings className="w-3.5 h-3.5 text-cyan-400" /> Configurar Provedores de IA
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {!(loading && filteredLogs.length === 0) && (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Gráfico 1: Evolução Temporal (Tokens + Custo ou Série Dedicada) */}
           <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 min-w-0 space-y-3">
@@ -1307,6 +1398,8 @@ export function AiUsageRechartsSection({
                       stackId="dailyTok"
                       fill="#06b6d4"
                       fillOpacity={0.8}
+                      className={timeGranularity === 'day' ? 'cursor-pointer' : undefined}
+                      onClick={(data: any) => toggleDateZoom(data?.payload?.date ?? data?.date)}
                     />
                     <Bar
                       yAxisId="left"
@@ -1316,6 +1409,8 @@ export function AiUsageRechartsSection({
                       fill="#8b5cf6"
                       fillOpacity={0.8}
                       radius={[4, 4, 0, 0]}
+                      className={timeGranularity === 'day' ? 'cursor-pointer' : undefined}
+                      onClick={(data: any) => toggleDateZoom(data?.payload?.date ?? data?.date)}
                     />
                     <Line
                       yAxisId="right"
@@ -1884,22 +1979,37 @@ export function AiUsageRechartsSection({
             </div>
           </div>
       </div>
+      )}
 
-      {/* Tabela Comparativa Sincronizada (Provedor / Departamento / Modelo) */}
+      {/* Tabela Comparativa Sincronizada (Provedor / Departamento / Modelo / Logs) */}
       <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-xs font-bold text-white">Detalhamento Tabular por Dimensão</div>
-          <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[11px]">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-xs font-bold text-white">Detalhamento Tabular por Dimensão</div>
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-2" />
+              <input
+                type="text"
+                value={tableSearch}
+                onChange={(e) => setTableSearch(e.target.value)}
+                placeholder="Buscar provedor, depto ou modelo..."
+                className="bg-slate-900 border border-slate-800 rounded-lg pl-8 pr-2.5 py-1 text-[11px] text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500 w-56"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[11px]">
             {([
               ['provider', `Provedores (${providerData.length})`],
               ['department', `Departamentos (${departmentData.length})`],
               ['model', `Modelos (${modelData.length})`],
+              ['logs', `Logs (${filteredLogs.length})`],
             ] as const).map(([tabId, label]) => (
               <button
                 key={tabId}
                 type="button"
                 onClick={() => setBreakdownTab(tabId)}
-                className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap transition-colors ${
+                className={`px-2.5 py-1 rounded-md font-medium whitespace-nowrap shrink-0 transition-colors ${
                   breakdownTab === tabId ? 'bg-cyan-600 text-white' : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -1910,67 +2020,208 @@ export function AiUsageRechartsSection({
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="border-b border-slate-800 text-[11px] text-slate-400">
-                <th className="py-2 pr-3 font-medium">
-                  {breakdownTab === 'provider' ? 'Provedor' : breakdownTab === 'department' ? 'Departamento' : 'Provedor / Modelo'}
-                </th>
-                <th className="py-2 px-3 text-right font-medium">Requisições</th>
-                <th className="py-2 px-3 text-right font-medium">Entrada (tok)</th>
-                <th className="py-2 px-3 text-right font-medium">Saída (tok)</th>
-                <th className="py-2 px-3 text-right font-medium">Total Tokens</th>
-                <th className="py-2 px-3 text-right font-medium">Custo USD</th>
-                <th className="py-2 pl-3 text-right font-medium">Custo BRL</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/70 font-mono tabular-nums">
-              {(() => {
-                const rows =
-                  breakdownTab === 'provider'
-                    ? providerData
-                    : breakdownTab === 'department'
-                      ? departmentData
-                      : modelData;
-                if (rows.length === 0) {
-                  return (
-                    <tr>
-                      <td colSpan={7} className="py-4 text-center font-sans text-slate-500">
-                        Nenhum registro de consumo para esta segmentação no período selecionado.
-                      </td>
-                    </tr>
-                  );
-                }
-                return rows.map((row: any) => {
-                  const isActive =
-                    (breakdownTab === 'provider' && filters.providerId === row.name) ||
-                    (breakdownTab === 'department' && filters.department === row.name) ||
-                    (breakdownTab === 'model' && filters.modelId === row.modelId);
-                  return (
-                    <tr
-                      key={row.name}
-                      onClick={() => {
-                        if (breakdownTab === 'provider') toggleProviderFilter(row.name);
-                        else if (breakdownTab === 'department') toggleDepartmentFilter(row.name);
-                        else toggleModelFilter(row.modelId);
-                      }}
-                      className={`cursor-pointer transition-colors ${
-                        isActive ? 'bg-cyan-500/10 text-cyan-200' : 'hover:bg-slate-900/70 text-slate-200'
-                      }`}
+          {breakdownTab === 'logs' ? (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800 text-[11px] text-slate-400">
+                  <th className="py-2 pr-3 font-medium">Data / Hora</th>
+                  <th className="py-2 px-3 font-medium">Provedor / Modelo</th>
+                  <th className="py-2 px-3 font-medium">Departamento</th>
+                  <th className="py-2 px-3 text-right font-medium">Entrada / Saída</th>
+                  <th className="py-2 px-3 text-right font-medium">Custo USD</th>
+                  <th className="py-2 px-3 text-right font-medium">Custo BRL</th>
+                  <th className="py-2 pl-3 text-right font-medium">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/70 font-mono tabular-nums">
+                {(() => {
+                  const q = tableSearch.trim().toLowerCase();
+                  const rows = filteredLogs
+                    .filter((l: any) => {
+                      if (!q) return true;
+                      return (
+                        String(l.providerId || '').toLowerCase().includes(q) ||
+                        String(l.modelId || '').toLowerCase().includes(q) ||
+                        String(l.department || '').toLowerCase().includes(q) ||
+                        String(l.action || '').toLowerCase().includes(q)
+                      );
+                    })
+                    .slice(0, 50);
+
+                  if (rows.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={7} className="py-4 text-center font-sans text-slate-500">
+                          Nenhum registro em aiGateway.usageLogs para o recorte atual.
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return rows.map((log: any) => {
+                    const usd = Number(log.estimatedCostUsd ?? log.totalCostUsd ?? 0);
+                    return (
+                      <tr
+                        key={log.id || log.requestId}
+                        onClick={() => onInspectLog && onInspectLog(log.id || log.requestId)}
+                        className={`transition-colors ${
+                          onInspectLog ? 'cursor-pointer hover:bg-slate-900/70' : ''
+                        } text-slate-200`}
+                      >
+                        <td className="py-2 pr-3 text-slate-400 whitespace-nowrap">
+                          {String(log.createdAt || '').replace('T', ' ').slice(0, 16)}
+                        </td>
+                        <td className="py-2 px-3 text-white">
+                          <span>{log.providerId}</span>
+                          <span className="text-slate-500"> / </span>
+                          <span className="text-cyan-300">{log.modelId}</span>
+                        </td>
+                        <td className="py-2 px-3 font-sans text-slate-300">{log.department || 'NER AI Center'}</td>
+                        <td className="py-2 px-3 text-right text-slate-300">
+                          {Number(log.inputTokens || 0).toLocaleString('pt-BR')} /{' '}
+                          {Number(log.outputTokens || 0).toLocaleString('pt-BR')}
+                        </td>
+                        <td className="py-2 px-3 text-right text-emerald-400 font-semibold">{fmtUsd(usd)}</td>
+                        <td className="py-2 px-3 text-right text-emerald-300">{fmtBrl(usd * exchangeRate)}</td>
+                        <td className="py-2 pl-3 text-right font-sans">
+                          <span
+                            className={`inline-flex items-center gap-1 text-[11px] font-medium ${
+                              log.status === 'success'
+                                ? 'text-emerald-400'
+                                : log.status === 'budget_blocked'
+                                  ? 'text-amber-300'
+                                  : 'text-rose-400'
+                            }`}
+                          >
+                            {log.status === 'success' ? 'Sucesso' : log.status}
+                            {onInspectLog && <Eye className="w-3 h-3 text-slate-400" />}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-slate-800 text-[11px] text-slate-400">
+                  <th className="py-2 pr-3 font-medium">
+                    {breakdownTab === 'provider'
+                      ? 'Provedor'
+                      : breakdownTab === 'department'
+                        ? 'Departamento'
+                        : 'Provedor / Modelo'}
+                  </th>
+                  <th className="py-2 px-3 text-right font-medium">
+                    <button
+                      type="button"
+                      onClick={() => handleSortToggle('requests')}
+                      className="inline-flex items-center gap-1 hover:text-white transition-colors"
                     >
-                      <td className="py-2 pr-3 font-sans font-medium text-white">{row.name}</td>
-                      <td className="py-2 px-3 text-right text-slate-300">{row.requests.toLocaleString('pt-BR')}</td>
-                      <td className="py-2 px-3 text-right text-cyan-300">{row.inputTokens.toLocaleString('pt-BR')}</td>
-                      <td className="py-2 px-3 text-right text-violet-300">{row.outputTokens.toLocaleString('pt-BR')}</td>
-                      <td className="py-2 px-3 text-right font-semibold text-white">{row.tokens.toLocaleString('pt-BR')}</td>
-                      <td className="py-2 px-3 text-right text-emerald-400 font-semibold">{fmtUsd(row.costUsd)}</td>
-                      <td className="py-2 pl-3 text-right text-emerald-300">{fmtBrl(row.costBrl)}</td>
-                    </tr>
+                      Requisições
+                      <ArrowUpDown className={`w-3 h-3 ${sortBy === 'requests' ? 'text-cyan-400' : 'text-slate-600'}`} />
+                    </button>
+                  </th>
+                  <th className="py-2 px-3 text-right font-medium">Entrada (tok)</th>
+                  <th className="py-2 px-3 text-right font-medium">Saída (tok)</th>
+                  <th className="py-2 px-3 text-right font-medium">
+                    <button
+                      type="button"
+                      onClick={() => handleSortToggle('tokens')}
+                      className="inline-flex items-center gap-1 hover:text-white transition-colors"
+                    >
+                      Total Tokens
+                      <ArrowUpDown className={`w-3 h-3 ${sortBy === 'tokens' ? 'text-cyan-400' : 'text-slate-600'}`} />
+                    </button>
+                  </th>
+                  <th className="py-2 px-3 text-right font-medium">
+                    <button
+                      type="button"
+                      onClick={() => handleSortToggle('costUsd')}
+                      className="inline-flex items-center gap-1 hover:text-white transition-colors"
+                    >
+                      Custo USD
+                      <ArrowUpDown className={`w-3 h-3 ${sortBy === 'costUsd' ? 'text-cyan-400' : 'text-slate-600'}`} />
+                    </button>
+                  </th>
+                  <th className="py-2 px-3 text-right font-medium">Custo BRL</th>
+                  <th className="py-2 pl-3 text-right font-medium">Share %</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/70 font-mono tabular-nums">
+                {(() => {
+                  const baseRows =
+                    breakdownTab === 'provider'
+                      ? providerData
+                      : breakdownTab === 'department'
+                        ? departmentData
+                        : modelData;
+                  const q = tableSearch.trim().toLowerCase();
+                  const rows = [...baseRows]
+                    .filter((r: any) => !q || String(r.name || '').toLowerCase().includes(q))
+                    .sort((a: any, b: any) => {
+                      const diff = Number(b[sortBy] || 0) - Number(a[sortBy] || 0);
+                      return sortDir === 'desc' ? diff : -diff;
+                    });
+                  const totalMetricForShare = rows.reduce(
+                    (acc: number, r: any) => acc + (metricMode === 'tokens' ? Number(r.tokens || 0) : Number(r.costUsd || 0)),
+                    0
                   );
-                });
-              })()}
-            </tbody>
-          </table>
+
+                  if (rows.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={8} className="py-4 text-center font-sans text-slate-500">
+                          Nenhum registro de consumo para esta segmentação no período selecionado.
+                        </td>
+                      </tr>
+                    );
+                  }
+                  return rows.map((row: any) => {
+                    const isActive =
+                      (breakdownTab === 'provider' && filters.providerId === row.name) ||
+                      (breakdownTab === 'department' && filters.department === row.name) ||
+                      (breakdownTab === 'model' && filters.modelId === row.modelId);
+                    const rowShareValue = metricMode === 'tokens' ? Number(row.tokens || 0) : Number(row.costUsd || 0);
+                    const sharePct =
+                      totalMetricForShare > 0 ? Math.min(100, (rowShareValue / totalMetricForShare) * 100) : 0;
+
+                    return (
+                      <tr
+                        key={row.name}
+                        onClick={() => {
+                          if (breakdownTab === 'provider') toggleProviderFilter(row.name);
+                          else if (breakdownTab === 'department') toggleDepartmentFilter(row.name);
+                          else toggleModelFilter(row.modelId);
+                        }}
+                        className={`cursor-pointer transition-colors ${
+                          isActive ? 'bg-cyan-500/10 text-cyan-200' : 'hover:bg-slate-900/70 text-slate-200'
+                        }`}
+                      >
+                        <td className="py-2 pr-3 font-sans font-medium text-white">{row.name}</td>
+                        <td className="py-2 px-3 text-right text-slate-300">{row.requests.toLocaleString('pt-BR')}</td>
+                        <td className="py-2 px-3 text-right text-cyan-300">{row.inputTokens.toLocaleString('pt-BR')}</td>
+                        <td className="py-2 px-3 text-right text-violet-300">{row.outputTokens.toLocaleString('pt-BR')}</td>
+                        <td className="py-2 px-3 text-right font-semibold text-white">{row.tokens.toLocaleString('pt-BR')}</td>
+                        <td className="py-2 px-3 text-right text-emerald-400 font-semibold">{fmtUsd(row.costUsd)}</td>
+                        <td className="py-2 px-3 text-right text-emerald-300">{fmtBrl(row.costBrl)}</td>
+                        <td className="py-2 pl-3 text-right">
+                          <div className="inline-flex items-center justify-end gap-2 min-w-[76px]">
+                            <div className="w-10 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                              <div className="h-full bg-cyan-500" style={{ width: `${sharePct.toFixed(0)}%` }} />
+                            </div>
+                            <span className="text-[11px] text-slate-300">{sharePct.toFixed(1)}%</span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  });
+                })()}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

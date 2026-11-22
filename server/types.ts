@@ -74,7 +74,6 @@ export const ROLE_PERMISSIONS: Record<RoleName, string[]> = {
     'creative.read',
     'performance.read',
     'finance.read',
-    'billing.read',
     'tickets.create', 'tickets.read',
     'ai.client_assist',
   ],
@@ -131,6 +130,18 @@ export interface Client {
   mrr: number;
   health: 'Excelente' | 'Bom' | 'Atenção' | 'Novo';
   manager: string;
+  notes?: string;
+  archivedAt?: string | null;
+  createdAt: string;
+}
+
+export interface PasswordResetToken {
+  id: string;
+  userId: string;
+  tokenHash: string;
+  expiresAt: string;
+  usedAt: string | null;
+  requestedIp?: string | null;
   createdAt: string;
 }
 
@@ -168,6 +179,7 @@ export interface Lead {
   status: string;
   estimatedValue: number;
   assignedUserId?: string;
+  archivedAt?: string | null;
   createdAt: string;
 }
 
@@ -183,6 +195,7 @@ export interface Opportunity {
   responsible: string;
   expectedClose?: string;
   history: { stage: string; changedAt: string; changedBy: string }[];
+  archivedAt?: string | null;
 }
 
 export interface Proposal {
@@ -194,12 +207,15 @@ export interface Proposal {
   title: string;
   setupValue: number;
   recurringValue: number;
+  discountValue?: number;
   totalValue: number;
+  conditions?: string;
   status: 'Rascunho' | 'Enviada' | 'Aceita' | 'Recusada';
   validUntil: string;
   responsible: string;
   acceptedAt?: string | null;
   acceptedBy?: string | null;
+  archivedAt?: string | null;
   createdAt: string;
 }
 
@@ -219,6 +235,7 @@ export interface Contract {
   status: 'Ativo' | 'Aguardando assinatura' | 'Encerrado';
   startDate: string;
   endDate: string;
+  archivedAt?: string | null;
 }
 
 export interface Receivable {
@@ -275,6 +292,7 @@ export interface Project {
   dueDate: string;
   managerId: string;
   progress: number;
+  archivedAt?: string | null;
   createdAt: string;
 }
 
@@ -291,6 +309,14 @@ export interface Briefing {
   createdAt: string;
 }
 
+export interface TaskComment {
+  id: string;
+  userId: string;
+  authorName: string;
+  body: string;
+  createdAt: string;
+}
+
 export interface Task {
   id: string;
   organizationId: string;
@@ -302,6 +328,8 @@ export interface Task {
   dueDate: string;
   estimatedHours: number;
   actualHours: number;
+  comments?: TaskComment[];
+  history?: { action: string; by: string; at: string }[];
 }
 
 export interface Deliverable {
@@ -313,6 +341,7 @@ export interface Deliverable {
   version: string;
   status: 'Planejado' | 'Em produção' | 'Em revisão pelo cliente' | 'Aprovado' | 'Entregue';
   dueDate: string;
+  assetUrl?: string;
 }
 
 export interface Approval {
@@ -357,6 +386,8 @@ export interface CreativeAsset {
   status: 'Rascunho' | 'Em Revisão' | 'Aprovado' | 'Entregue';
   usageRights: 'Próprio' | 'Fornecido pelo cliente' | 'IA (Revisão pendente)' | 'Licenciado';
   scriptSummary?: string;
+  fileAssetId?: string;
+  archivedAt?: string | null;
 }
 
 export interface AdAccount {
@@ -389,6 +420,7 @@ export interface TrackingEvent {
   currency: string;
   confirmedByPayment: boolean;
   deduplicatedCount: number;
+  dispatchStatus?: 'recorded' | 'dispatched' | 'failed' | 'blocked_credentials';
   timestamp: string;
 }
 
@@ -424,6 +456,16 @@ export interface WebPage {
   sections: { id: string; type: string; headline: string; subheadline: string; ctaText: string }[];
   visits: number;
   leadsCaptured: number;
+  archivedAt?: string | null;
+}
+
+export interface TicketReply {
+  id: string;
+  userId: string;
+  authorName: string;
+  authorRole: RoleName;
+  message: string;
+  createdAt: string;
 }
 
 export interface ClientTicket {
@@ -435,7 +477,11 @@ export interface ClientTicket {
   subject: string;
   description: string;
   status: 'Aberto' | 'Em atendimento' | 'Resolvido';
+  assigneeId?: string | null;
+  assigneeName?: string | null;
+  replies?: TicketReply[];
   createdAt: string;
+  updatedAt?: string;
 }
 
 export interface SaaSSubscription {
@@ -463,6 +509,13 @@ export interface BillingWebhookEventRecord {
   processedAt: string;
 }
 
+export interface IncidentHistoryEntry {
+  action: string;
+  by: string;
+  note?: string;
+  at: string;
+}
+
 export interface IncidentRecord {
   id: string;
   organizationId: string;
@@ -471,7 +524,123 @@ export interface IncidentRecord {
   service: string;
   description: string;
   status: 'Aberto' | 'Em investigação' | 'Resolvido';
+  assigneeId?: string | null;
+  assigneeName?: string | null;
+  resolutionPlan?: string;
+  history?: IncidentHistoryEntry[];
+  resolvedAt?: string | null;
   createdAt: string;
+}
+
+export interface StoredAsset {
+  id: string;
+  organizationId: string;
+  clientId?: string | null;
+  projectId?: string | null;
+  module: 'creative' | 'deliverable' | 'web' | 'general';
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  storageDriver: 's3' | 'gcs' | 'minio' | 'local';
+  storageKey: string;
+  sha256: string;
+  uploadedById: string;
+  deletedAt?: string | null;
+  createdAt: string;
+}
+
+export interface StrategyOkr {
+  id: string;
+  objective: string;
+  keyResult: string;
+  target: string;
+  current: string;
+  progress: number;
+}
+
+export interface StrategyPlan {
+  id: string;
+  organizationId: string;
+  clientId: string;
+  projectId?: string | null;
+  title: string;
+  quarter: string;
+  objective: string;
+  positioning?: string;
+  channels: string[];
+  okrs: StrategyOkr[];
+  status: 'Rascunho' | 'Ativo' | 'Concluído' | 'Arquivado';
+  createdById: string;
+  archivedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QaCheckItem {
+  id: string;
+  organizationId: string;
+  projectId?: string | null;
+  title: string;
+  category: 'API' | 'Integração' | 'Segurança' | 'Performance' | 'UX';
+  severity: 'Baixa' | 'Média' | 'Alta' | 'Crítica';
+  status: 'Pendente' | 'Aprovado' | 'Falhou' | 'Corrigido';
+  assigneeName?: string;
+  evidence?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LaunchChecklistItem {
+  id: string;
+  organizationId: string;
+  projectId?: string | null;
+  domain: 'SSL' | 'DNS' | 'Pixel' | 'Migrations' | 'Backup' | 'Billing' | 'Monitoring' | 'Security';
+  title: string;
+  required: boolean;
+  status: 'Pendente' | 'Concluído' | 'Bloqueado';
+  verifiedBy?: string | null;
+  verifiedAt?: string | null;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DeliveryHandoff {
+  id: string;
+  organizationId: string;
+  projectId: string;
+  clientId: string;
+  title: string;
+  version: string;
+  summary: string;
+  deliverablesList: string[];
+  acceptanceTerms: string;
+  status: 'Aguardando aceite' | 'Aceito' | 'Ajustes solicitados';
+  acceptedByName?: string | null;
+  acceptedByUserId?: string | null;
+  acceptedAt?: string | null;
+  signatureHash?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AdIntegrationProviderId = 'meta_ads' | 'google_ads' | 'tiktok_ads';
+
+export interface AdIntegrationCredential {
+  id: string;
+  organizationId: string;
+  provider: AdIntegrationProviderId;
+  enabled: boolean;
+  publicConfig: Record<string, string>;
+  encryptedSecrets: Record<string, string>;
+  secretMasks: Record<string, string>;
+  status: 'CONFIGURADO' | 'PENDENTE' | 'ERRO';
+  lastTestedAt?: string | null;
+  lastTestStatus?: 'ok' | 'error' | 'config_only' | null;
+  lastTestMessage?: string | null;
+  updatedByUserId: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface AuditLog {
@@ -489,6 +658,7 @@ export interface DatabaseState {
   organizations: Organization[];
   users: User[];
   sessions: SessionRecord[];
+  passwordResetTokens: PasswordResetToken[];
   clients: Client[];
   commercialPlans: CommercialPlan[];
   leads: Lead[];
@@ -506,6 +676,7 @@ export interface DatabaseState {
   timeTracking: TimeEntry[];
   creatives: CreativeAsset[];
   adAccounts: AdAccount[];
+  adIntegrationCredentials: AdIntegrationCredential[];
   trackingEvents: TrackingEvent[];
   workflows: AutomationWorkflow[];
   webPages: WebPage[];
@@ -513,6 +684,11 @@ export interface DatabaseState {
   subscriptions: SaaSSubscription[];
   billingWebhookEvents: BillingWebhookEventRecord[];
   incidents: IncidentRecord[];
+  storedAssets: StoredAsset[];
+  strategyPlans: StrategyPlan[];
+  qaItems: QaCheckItem[];
+  launchItems: LaunchChecklistItem[];
+  deliveryHandoffs: DeliveryHandoff[];
   auditLogs: AuditLog[];
   aiGateway: AiGatewayState;
 }

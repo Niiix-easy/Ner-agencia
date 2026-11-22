@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Building2, Key, Activity, Plus, ShieldAlert, CheckCircle2, Ban, Download } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import { PlanEntitlementsBanner } from './PlanEntitlementsBanner';
 
 export function UsersManagementView({
   usersList,
@@ -70,6 +71,12 @@ export function UsersManagementView({
           <Plus className="w-4 h-4" /> Novo Usuário
         </button>
       </div>
+
+      <PlanEntitlementsBanner
+        activeOrgId={activeOrgId}
+        focus="users"
+        refreshTrigger={usersList.length}
+      />
 
       <div className="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
         <table className="w-full text-left text-xs">

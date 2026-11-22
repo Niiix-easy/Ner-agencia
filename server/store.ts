@@ -115,6 +115,7 @@ export function createInitialSeedState(): DatabaseState {
       },
     ],
     sessions: [],
+    passwordResetTokens: [],
     clients: [
       {
         id: 'cli-1',
@@ -705,6 +706,7 @@ export function createInitialSeedState(): DatabaseState {
         lastSyncAt: now,
       },
     ],
+    adIntegrationCredentials: [],
     trackingEvents: [
       {
         id: 'evt-1',
@@ -820,6 +822,19 @@ export function createInitialSeedState(): DatabaseState {
         currentPeriodEnd: null,
         updatedAt: now,
       },
+      {
+        id: 'sub-2',
+        organizationId: 'org-2',
+        planCode: 'NER_BUSINESS_GROWTH',
+        planName: 'NER Business Growth (SaaS)',
+        provider: 'stripe',
+        externalSubId: null,
+        externalCustomerId: null,
+        status: 'active',
+        amountMonthly: 349,
+        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        updatedAt: now,
+      },
     ],
     billingWebhookEvents: [],
     incidents: [
@@ -831,7 +846,130 @@ export function createInitialSeedState(): DatabaseState {
         service: 'Google Ads API / n8n / Stripe',
         description: 'Credenciais OAuth/Webhook externas aguardando configuração de variáveis de ambiente para sincronização real.',
         status: 'Aberto',
+        assigneeName: 'Maycon Quevedo',
+        resolutionPlan: 'Configurar chaves OAuth/Stripe no painel de ambiente de produção e validar smoke tests.',
+        history: [{ action: 'INCIDENT_OPENED', by: 'Maycon Quevedo', at: now }],
+        resolvedAt: null,
         createdAt: now,
+      },
+    ],
+    storedAssets: [],
+    strategyPlans: [
+      {
+        id: 'str-1',
+        organizationId: 'org-1',
+        clientId: 'cli-1',
+        projectId: 'prj-1',
+        title: 'Plano de Escala B2B Q4 — TechFlow SaaS',
+        quarter: 'Q4 2026',
+        objective: 'Elevar aquisição de trials qualificados em +35% mantendo CAC abaixo de R$ 80.',
+        positioning: 'Plataforma de automação corporativa auditada para times de engenharia.',
+        channels: ['Meta Ads', 'Google Search', 'Landing Page CRO', 'E-mail Nurture'],
+        okrs: [
+          { id: 'okr-1', objective: 'Aquisição Trial', keyResult: '650 trials/mês', target: '650', current: '612', progress: 94 },
+          { id: 'okr-2', objective: 'Eficiência Mídia', keyResult: 'ROAS >= 4.0x', target: '4.0x', current: '4.32x', progress: 100 },
+        ],
+        status: 'Ativo',
+        createdById: 'usr-1',
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    qaItems: [
+      {
+        id: 'qa-1',
+        organizationId: 'org-1',
+        projectId: 'prj-1',
+        title: 'Validar isolamento RBAC de Cliente em /api/finance/summary e /api/billing/subscription',
+        category: 'Segurança',
+        severity: 'Crítica',
+        status: 'Aprovado',
+        assigneeName: 'Maycon Quevedo',
+        evidence: 'Suite automatizada tests/security-p0.test.ts aprovada.',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'qa-2',
+        organizationId: 'org-1',
+        projectId: 'prj-1',
+        title: 'Validar deduplicação Meta CAPI + Browser Pixel',
+        category: 'Integração',
+        severity: 'Alta',
+        status: 'Pendente',
+        assigneeName: 'Carlos Silva',
+        evidence: 'Aguardando META_ACCESS_TOKEN para disparo live.',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    launchItems: [
+      {
+        id: 'lch-1',
+        organizationId: 'org-1',
+        projectId: 'prj-1',
+        domain: 'SSL',
+        title: 'Certificado HTTPS/TLS válido em domínio de produção',
+        required: true,
+        status: 'Pendente',
+        verifiedBy: null,
+        verifiedAt: null,
+        notes: 'Validar apontamento DNS CNAME antes do cutover.',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'lch-2',
+        organizationId: 'org-1',
+        projectId: 'prj-1',
+        domain: 'Security',
+        title: 'RBAC multi-tenant, entitlements e rate-limit auditados',
+        required: true,
+        status: 'Concluído',
+        verifiedBy: 'Maycon Quevedo',
+        verifiedAt: now,
+        notes: 'Verificado via suite P0.',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'lch-3',
+        organizationId: 'org-1',
+        projectId: 'prj-1',
+        domain: 'Billing',
+        title: 'Stripe Secret Key + Webhook Secret configurados em produção',
+        required: true,
+        status: 'Pendente',
+        verifiedBy: null,
+        verifiedAt: null,
+        notes: 'Requer credenciais live no ambiente.',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    deliveryHandoffs: [
+      {
+        id: 'dlv-1',
+        organizationId: 'org-1',
+        projectId: 'prj-1',
+        clientId: 'cli-1',
+        title: 'Termo de Entrega & Handoff — Operação Performance TechFlow Q4',
+        version: 'v1.0',
+        summary: 'Entrega consolidada de tracking CAPI, landing page trial B2B e pacote inicial de criativos UGC.',
+        deliverablesList: [
+          'Relatório de Configuração de Tracking & CAPI (v1.0)',
+          'Landing Page Trial B2B — TechFlow (v1.2)',
+          'Pacote de Criativos UGC Q4 (v1.0)',
+        ],
+        acceptanceTerms: 'Declaro ciência e aceite formal dos entregáveis listados acima, autorizando o encerramento da fase de implantação.',
+        status: 'Aguardando aceite',
+        acceptedByName: null,
+        acceptedByUserId: null,
+        acceptedAt: null,
+        signatureHash: null,
+        createdAt: now,
+        updatedAt: now,
       },
     ],
     auditLogs: [
@@ -860,11 +998,40 @@ export class PersistentStore {
       try {
         const raw = fs.readFileSync(this.filePath, 'utf-8');
         this.state = JSON.parse(raw) as DatabaseState;
+        let dirty = false;
+        const seedDefaults = createInitialSeedState();
+        if (!Array.isArray(this.state.passwordResetTokens)) {
+          this.state.passwordResetTokens = [];
+          dirty = true;
+        }
+        if (!Array.isArray(this.state.storedAssets)) {
+          this.state.storedAssets = [];
+          dirty = true;
+        }
+        if (!Array.isArray(this.state.adIntegrationCredentials)) {
+          this.state.adIntegrationCredentials = [];
+          dirty = true;
+        }
+        if (!Array.isArray(this.state.strategyPlans)) {
+          this.state.strategyPlans = seedDefaults.strategyPlans;
+          dirty = true;
+        }
+        if (!Array.isArray(this.state.qaItems)) {
+          this.state.qaItems = seedDefaults.qaItems;
+          dirty = true;
+        }
+        if (!Array.isArray(this.state.launchItems)) {
+          this.state.launchItems = seedDefaults.launchItems;
+          dirty = true;
+        }
+        if (!Array.isArray(this.state.deliveryHandoffs)) {
+          this.state.deliveryHandoffs = seedDefaults.deliveryHandoffs;
+          dirty = true;
+        }
         if (!this.state.aiGateway) {
           this.state.aiGateway = createInitialAiGatewayState();
-          this.save();
+          dirty = true;
         } else {
-          let dirty = false;
           const ai = this.state.aiGateway;
           if (!Array.isArray(ai.actions) || ai.actions.length === 0) {
             ai.actions = DEFAULT_AI_ACTIONS.map((a) => ({ ...a }));
@@ -900,8 +1067,8 @@ export class PersistentStore {
               dirty = true;
             }
           }
-          if (dirty) this.save();
         }
+        if (dirty) this.save();
       } catch {
         this.state = createInitialSeedState();
         this.save();
@@ -930,6 +1097,22 @@ export class PersistentStore {
   public resetForTests(): void {
     this.state = createInitialSeedState();
     this.save();
+  }
+
+  /**
+   * Executes a multi-step mutation transactionally with automatic in-memory rollback
+   * if an error is thrown before commit (used for financial operations & conversions).
+   */
+  public runTransaction<T>(fn: (state: DatabaseState) => T): T {
+    const snapshot = JSON.stringify(this.state);
+    try {
+      const result = fn(this.state);
+      this.save();
+      return result;
+    } catch (err) {
+      this.state = JSON.parse(snapshot) as DatabaseState;
+      throw err;
+    }
   }
 
   public audit(

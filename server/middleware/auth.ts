@@ -16,6 +16,7 @@ declare global {
     interface Request {
       auth?: AuthContext;
       rawBody?: Buffer;
+      auditSecurityEvent?: (action: string, resource: string, metadata?: Record<string, unknown>) => void;
     }
   }
 }
@@ -97,6 +98,16 @@ export function hasPermission(permissions: string[], required: string): boolean 
 
 export function createAuthMiddleware(store: PersistentStore) {
   return function attachAuth(req: Request, _res: Response, next: NextFunction): void {
+    req.auditSecurityEvent = (action: string, resource: string, metadata: Record<string, unknown> = {}) => {
+      if (!req.auth) return;
+      store.audit(req.auth.organizationId, req.auth.user.id, action, resource, req.path, {
+        method: req.method,
+        path: req.path,
+        role: req.auth.user.role,
+        ...metadata,
+      });
+    };
+
     const token = extractSessionToken(req);
     if (!token) {
       next();
@@ -148,6 +159,9 @@ export function requirePermission(permission: string) {
       return;
     }
     if (!hasPermission(req.auth.permissions, permission)) {
+      req.auditSecurityEvent?.('SECURITY_UNAUTHORIZED_ACCESS', 'RBAC', {
+        requiredPermission: permission,
+      });
       res.status(403).json({ error: `Acesso negado. Permissão requerida: ${permission}` });
       return;
     }

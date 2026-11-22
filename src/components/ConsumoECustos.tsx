@@ -1,5 +1,5 @@
 import React from 'react';
-import type { CostFilterState } from './AiCenterViews';
+import type { AiTabId, CostFilterState } from './AiCenterViews';
 import {
   AiUsageRechartsSection,
   ProjectedBudgetAlertsSection,
@@ -15,14 +15,18 @@ export interface ConsumoECustosProps {
   costPolicy?: any;
   summary?: any;
   alerts?: any[];
+  loading?: boolean;
+  onInspectLog?: (id: string) => void;
+  onNavigateTab?: (tab: AiTabId) => void;
   showBudgetAlerts?: boolean;
 }
 
 /**
  * Componente principal "Consumo e Custos" do NER AI CENTER.
  * Consome `aiGateway.usageLogs` e renderiza gráficos interativos em Recharts
- * (evolução diária, provedor, departamento e modelo) com filtros dinâmicos de período
- * e monitoramento projetado contra limites orçamentários (50%, 75%, 90%, 100%).
+ * (evolução temporal, provedor, departamento e modelo) com filtros dinâmicos de período,
+ * cross-filtering bidirecional, detalhamento tabular ordenável e monitoramento projetado
+ * contra limites orçamentários (50%, 75%, 90%, 100%).
  */
 export function ConsumoECustos({
   usageLogs,
@@ -34,16 +38,22 @@ export function ConsumoECustos({
   costPolicy,
   summary,
   alerts = [],
+  loading = false,
+  onInspectLog,
+  onNavigateTab,
   showBudgetAlerts = true,
 }: ConsumoECustosProps) {
   return (
     <div className="space-y-5">
       {/* Gráficos Interativos Recharts sobre aiGateway.usageLogs em destaque */}
       <AiUsageRechartsSection
-        usageLogs={chartUsageLogs && chartUsageLogs.length > 0 ? chartUsageLogs : usageLogs}
+        usageLogs={chartUsageLogs ?? usageLogs}
         exchangeRate={exchangeRate}
         filters={filters}
         onChangeFilters={onChangeFilters}
+        loading={loading}
+        onInspectLog={onInspectLog}
+        onNavigateTab={onNavigateTab}
       />
 
       {/* Projeção de Custos & Barras Color-Coded com Marcos 50%, 75%, 90%, 100% */}

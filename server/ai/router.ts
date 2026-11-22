@@ -664,6 +664,73 @@ export function createAiGatewayRouter(
     res.status(201).json(doc);
   });
 
+  router.get('/memory', requireAuth, (req: Request, res: Response) => {
+    if (!hasPermission(req.auth!.permissions, 'ai.read') && !hasPermission(req.auth!.permissions, 'ai.client_assist')) {
+      res.status(403).json({ error: 'Permissão de IA requerida para visualizar memória.' });
+      return;
+    }
+    const scope = resolveScopedOrg(req, req.query.organizationId as string | undefined);
+    if (!scope.allowed) {
+      res.status(403).json({ error: 'Acesso negado à memória de outra organização.' });
+      return;
+    }
+    let memories = store.getState().aiGateway.memories.filter((m) => m.organizationId === scope.organizationId);
+    if (req.auth!.user.role === 'Cliente') {
+      if (!req.auth!.clientId) {
+        res.status(403).json({ error: 'Acesso negado.' });
+        return;
+      }
+      memories = memories.filter((m) => m.clientId === req.auth!.clientId);
+    }
+    const byConversation = new Map<string, { conversationId: string; count: number; lastActivity: string; retentionDays: number; clientId?: string | null; preview: string }>();
+    for (const m of memories) {
+      const existing = byConversation.get(m.conversationId);
+      if (!existing) {
+        byConversation.set(m.conversationId, {
+          conversationId: m.conversationId,
+          count: 1,
+          lastActivity: m.createdAt,
+          retentionDays: m.retentionDays || 90,
+          clientId: m.clientId ?? null,
+          preview: m.content.slice(0, 120),
+        });
+      } else {
+        existing.count += 1;
+        if (m.createdAt > existing.lastActivity) {
+          existing.lastActivity = m.createdAt;
+          existing.preview = m.content.slice(0, 120);
+        }
+      }
+    }
+    res.json({
+      totalEntries: memories.length,
+      conversations: Array.from(byConversation.values()).sort((a, b) => b.lastActivity.localeCompare(a.lastActivity)),
+    });
+  });
+
+  router.post('/memory/prune', requirePermission('ai.manage'), (req: Request, res: Response) => {
+    const scope = resolveScopedOrg(req, req.body?.organizationId);
+    if (!scope.allowed) {
+      res.status(403).json({ error: 'Acesso negado.' });
+      return;
+    }
+    const olderThanDays = Math.max(0, Number(req.body?.olderThanDays ?? 90));
+    const cutoffMs = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
+    const state = store.getState();
+    const before = state.aiGateway.memories.length;
+    state.aiGateway.memories = state.aiGateway.memories.filter((m) => {
+      if (m.organizationId !== scope.organizationId) return true;
+      if (olderThanDays === 0) return false;
+      return new Date(m.createdAt).getTime() > cutoffMs;
+    });
+    const removedEntries = before - state.aiGateway.memories.length;
+    store.audit(scope.organizationId, req.auth!.user.id, 'AI_MEMORY_PRUNED', 'AiMemory', scope.organizationId, {
+      olderThanDays,
+      removedEntries,
+    });
+    res.json({ success: true, olderThanDays, removedEntries });
+  });
+
   router.delete('/memory/:conversationId', requireAuth, (req: Request, res: Response) => {
     if (!hasPermission(req.auth!.permissions, 'ai.use') && !hasPermission(req.auth!.permissions, 'ai.client_assist')) {
       res.status(403).json({ error: 'Permissão de IA requerida para limpar memória.' });

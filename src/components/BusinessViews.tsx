@@ -641,13 +641,18 @@ export function CommercialPlansView({ plans, clients, activeOrgId, currentUser, 
   );
 }
 
-export function ProposalsView({ proposals, clients, activeOrgId, onRefresh, onNotify }: any) {
+export function ProposalsView({ proposals, clients, plans = [], activeOrgId, onRefresh, onNotify }: any) {
   const [showModal, setShowModal] = useState(false);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [form, setForm] = useState({
     clientId: clients[0]?.id || '',
+    planCode: '',
     title: '',
     setupValue: 1990,
     recurringValue: 499,
+    discountValue: 0,
+    conditions: 'Pagamento 50% na assinatura e 50% na entrega; recorrência via boleto/Stripe.',
     validUntil: new Date(Date.now() + 15 * 86400000).toISOString().slice(0, 10),
   });
 
@@ -658,15 +663,37 @@ export function ProposalsView({ proposals, clients, activeOrgId, onRefresh, onNo
     }));
   }, [activeOrgId, clients]);
 
+  const handleSelectPlan = (code: string) => {
+    const plan = (plans || []).find((p: any) => p.code === code);
+    if (!plan) {
+      setForm((prev) => ({ ...prev, planCode: '' }));
+      return;
+    }
+    setForm((prev) => ({
+      ...prev,
+      planCode: plan.code,
+      title: prev.title || `Proposta ${plan.name}`,
+      setupValue: Number(plan.setupPrice || 0),
+      recurringValue: Number(plan.recurringPrice || 0),
+    }));
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await apiFetch('/api/proposals', {
         method: 'POST',
-        body: JSON.stringify({ ...form, clientId: form.clientId || clients[0]?.id, organizationId: activeOrgId }),
+        body: JSON.stringify({
+          ...form,
+          planCode: form.planCode || undefined,
+          discountValue: Number(form.discountValue || 0),
+          clientId: form.clientId || clients[0]?.id,
+          organizationId: activeOrgId,
+        }),
       });
       setShowModal(false);
-      onNotify('Proposta emitida.');
+      setForm((prev) => ({ ...prev, planCode: '', title: '', discountValue: 0 }));
+      onNotify('Proposta comercial emitida.');
       onRefresh();
     } catch (err: any) {
       onNotify(err.message, true);
@@ -683,18 +710,64 @@ export function ProposalsView({ proposals, clients, activeOrgId, onRefresh, onNo
     }
   };
 
+  const handleArchive = async (id: string) => {
+    try {
+      await apiFetch(`/api/archive/proposals/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ archived: true }),
+      });
+      onNotify('Proposta arquivada com auditoria.');
+      onRefresh();
+    } catch (err: any) {
+      onNotify(err.message, true);
+    }
+  };
+
+  const filtered = (proposals || []).filter((p: any) => {
+    if (p.archivedAt) return false;
+    if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      return `${p.number} ${p.title} ${p.planCode || ''}`.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
             <FileText className="w-6 h-6 text-cyan-400" /> NER Business • Propostas Comerciais
           </h2>
-          <p className="text-sm text-slate-400">Emissão e aceite com geração automática de contrato.</p>
+          <p className="text-sm text-slate-400">
+            Associação a planos comerciais (planCode), descontos, condições de pagamento e conversão direta em contrato.
+          </p>
         </div>
         <button onClick={() => setShowModal(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs">
           <Plus className="w-4 h-4" /> Nova Proposta
         </button>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por número, título ou planCode..."
+          className="flex-1 min-w-[220px] bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
+        >
+          <option value="all">Todos os status</option>
+          <option value="Rascunho">Rascunho</option>
+          <option value="Enviada">Enviada</option>
+          <option value="Aceita">Aceita</option>
+          <option value="Recusada">Recusada</option>
+        </select>
       </div>
 
       <div className="bg-slate-900/60 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
@@ -702,20 +775,29 @@ export function ProposalsView({ proposals, clients, activeOrgId, onRefresh, onNo
           <thead className="bg-slate-950 border-b border-slate-800 text-slate-400 uppercase font-semibold">
             <tr>
               <th className="p-4">Número</th>
-              <th className="p-4">Título / Escopo</th>
-              <th className="p-4">Setup / Recorrente</th>
+              <th className="p-4">Título / Plano / Condições</th>
+              <th className="p-4">Setup / Recorrente / Desc.</th>
               <th className="p-4">Validade</th>
               <th className="p-4">Status</th>
               <th className="p-4 text-right">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/60">
-            {proposals.map((p: any) => (
+            {filtered.map((p: any) => (
               <tr key={p.id} className="hover:bg-slate-800/30">
                 <td className="p-4 font-mono font-bold text-cyan-400">{p.number}</td>
-                <td className="p-4 font-semibold text-white">{p.title}</td>
+                <td className="p-4">
+                  <div className="font-semibold text-white">{p.title}</div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    {p.planCode && <span className="font-mono text-cyan-300 mr-2">[{p.planCode}]</span>}
+                    {p.conditions || 'Condições padrão'}
+                  </div>
+                </td>
                 <td className="p-4 font-mono text-emerald-400">
-                  {formatCurrencyBRL(p.setupValue)} + {formatCurrencyBRL(p.recurringValue)}/mês
+                  <div>{formatCurrencyBRL(p.setupValue)} + {formatCurrencyBRL(p.recurringValue)}/mês</div>
+                  {Number(p.discountValue || 0) > 0 && (
+                    <div className="text-[10px] text-amber-300">Desconto: -{formatCurrencyBRL(p.discountValue)}</div>
+                  )}
                 </td>
                 <td className="p-4 text-slate-400">{p.validUntil}</td>
                 <td className="p-4">
@@ -723,35 +805,79 @@ export function ProposalsView({ proposals, clients, activeOrgId, onRefresh, onNo
                     {p.status}
                   </span>
                 </td>
-                <td className="p-4 text-right">
+                <td className="p-4 text-right space-x-2">
                   {p.status !== 'Aceita' && (
                     <button
                       onClick={() => handleAccept(p.id)}
                       className="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs"
                     >
-                      Registrar Aceite
+                      Converter em Contrato
                     </button>
                   )}
+                  <button
+                    onClick={() => handleArchive(p.id)}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs"
+                  >
+                    Arquivar
+                  </button>
                 </td>
               </tr>
             ))}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={6} className="p-8 text-center text-slate-500">
+                  Nenhuma proposta encontrada para os filtros aplicados.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
 
       {showModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <form onSubmit={handleCreate} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 space-y-4">
+          <form onSubmit={handleCreate} className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 space-y-4">
             <h3 className="text-lg font-bold text-white">Nova Proposta Comercial</h3>
-            <select value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
-              {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-            <input type="text" required placeholder="Título do escopo" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white" />
-            <div className="grid grid-cols-2 gap-3">
-              <input type="number" min={0} placeholder="Setup (R$)" value={form.setupValue} onChange={(e) => setForm({ ...form, setupValue: Number(e.target.value) })} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white" />
-              <input type="number" min={0} placeholder="Recorrente (R$)" value={form.recurringValue} onChange={(e) => setForm({ ...form, recurringValue: Number(e.target.value) })} className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white" />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Cliente</label>
+                <select value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
+                  {clients.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Plano Comercial (planCode)</label>
+                <select value={form.planCode} onChange={(e) => handleSelectPlan(e.target.value)} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white">
+                  <option value="">Personalizado (sem plano base)</option>
+                  {plans.map((pl: any) => (
+                    <option key={pl.id} value={pl.code}>{pl.code} — {pl.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-            <input type="date" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white" />
+            <input type="text" required placeholder="Título do escopo" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white" />
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Setup (R$)</label>
+                <input type="number" min={0} value={form.setupValue} onChange={(e) => setForm({ ...form, setupValue: Number(e.target.value) })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white" />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Recorrente (R$)</label>
+                <input type="number" min={0} value={form.recurringValue} onChange={(e) => setForm({ ...form, recurringValue: Number(e.target.value) })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white" />
+              </div>
+              <div>
+                <label className="text-[11px] text-slate-400 block mb-1">Desconto (R$)</label>
+                <input type="number" min={0} value={form.discountValue} onChange={(e) => setForm({ ...form, discountValue: Number(e.target.value) })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white" />
+              </div>
+            </div>
+            <div>
+              <label className="text-[11px] text-slate-400 block mb-1">Condições Comerciais</label>
+              <textarea rows={2} value={form.conditions} onChange={(e) => setForm({ ...form, conditions: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white" />
+            </div>
+            <div>
+              <label className="text-[11px] text-slate-400 block mb-1">Validade da Proposta</label>
+              <input type="date" value={form.validUntil} onChange={(e) => setForm({ ...form, validUntil: e.target.value })} className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-2 text-sm text-white" />
+            </div>
             <div className="flex justify-end gap-3">
               <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 rounded-lg bg-slate-800 text-xs">Cancelar</button>
               <button type="submit" className="px-4 py-2 rounded-lg bg-cyan-600 text-white text-xs font-semibold">Emitir Proposta</button>
